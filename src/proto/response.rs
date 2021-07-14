@@ -204,8 +204,29 @@ pub trait ReadFrom: Sized {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[test]
-    fn exploration() {
-        assert_eq!(2 + 2, 4);
+    fn read_device_info_response_test() {
+        let mut response_data: Vec<u8> = vec![
+            3, 1, 0, 0, 2, 14, 1, 1, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0,
+            0, 0,
+        ];
+
+        let read_device_info_response =
+            ReadDeviceInfoResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        let response = Response::ReadDeviceInfo(
+            read_device_info_response.clone()
+        );
+
+        assert_eq!(read_device_info_response.result, 259);
+        assert_eq!(read_device_info_response.major_version, 2);
+        assert_eq!(read_device_info_response.minor_version, 14);
+        assert_eq!(read_device_info_response.version_build, 257);
+
+        let expected_device_name: [u8; 16] = [
+            72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0, 0, 0,
+        ]; //Hello World
+        assert_eq!(read_device_info_response.device_name, expected_device_name);
     }
 }
