@@ -41,8 +41,8 @@ impl ReadFrom for ReadStateResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         Ok(Self {
             result: read.read_u32::<LittleEndian>()?,
-            ads_state: read.read_16::<LittleEndian>()?,
-            device_state: read.read_16::<LittleEndian>()?,
+            ads_state: read.read_u16::<LittleEndian>()?,
+            device_state: read.read_u16::<LittleEndian>()?,
         })
     }
 }
