@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq, Clone)]
 pub enum AdsState {
     AdsStateInvalid,
     AdsStateIdle,
@@ -38,6 +39,29 @@ impl AdsState {
             AdsState::AdsStateResume => 14,
             AdsState::AdsStateConfig => 15,
             AdsState::AdsStateReconfig => 16,
+        }
+    }
+
+    pub fn from_u16(state_value: u16) -> Option<Self> {
+        match state_value {
+            0 => Some(AdsState::AdsStateInvalid),
+            1 => Some(AdsState::AdsStateIdle),
+            2 => Some(AdsState::AdsStateReset),
+            3 => Some(AdsState::AdsStateInit),
+            4 => Some(AdsState::AdsStateStart),
+            5 => Some(AdsState::AdsStateRun),
+            6 => Some(AdsState::AdsStateStop),
+            7 => Some(AdsState::AdsStateSaveCFG),
+            8 => Some(AdsState::AdsStateLoadCFG),
+            9 => Some(AdsState::AdsStatePowerFailure),
+            10 => Some(AdsState::AdsStatePowerGood),
+            11 => Some(AdsState::AdsStateError),
+            12 => Some(AdsState::AdsStateShutDown),
+            13 => Some(AdsState::AdsStateSuspend),
+            14 => Some(AdsState::AdsStateResume),
+            15 => Some(AdsState::AdsStateConfig),
+            16 => Some(AdsState::AdsStateReconfig),
+            _ => None,
         }
     }
 }

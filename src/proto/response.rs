@@ -1,17 +1,18 @@
+use super::ads_state::AdsState;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{self, Error, Read, Write};
 
 #[derive(Debug)]
 pub enum Response {
     ReadDeviceInfo(ReadDeviceInfoResponse),
-    Read(DataMessage),
+    Read(ReadResponse),
     Write(WriteResponse),
     ReadState(ReadStateResponse),
     WriteControl(WriteControlResponse),
     AddDeviceNotification(AddDeviceNotificationResponse),
     DeleteDeviceNotification(DeleteDeviceNotificationResponse),
-    DeviceNotification(DeviceNotificationResponse),
-    ReadWrite(DataMessage),
+    DeviceNotification(AdsNotificationStream),
+    ReadWrite(ReadResponse),
 }
 
 /// ADS Read Device Info
@@ -59,15 +60,24 @@ impl ReadFrom for WriteResponse {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadStateResponse {
     result: u32,
-    ads_state: u16,
+    ads_state: AdsState,
     device_state: u16,
 }
 
 impl ReadFrom for ReadStateResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let result = read.read_u32::<LittleEndian>()?;
+
+        let mut ads_state;
+        if let Some(state) = AdsState::from_u16(read.read_u16::<LittleEndian>()?) {
+            ads_state = state;
+        } else {
+            panic!("Unknown AdsState value recieved") //ToDo return error
+        }
+
         Ok(Self {
-            result: read.read_u32::<LittleEndian>()?,
-            ads_state: read.read_u16::<LittleEndian>()?,
+            result,
+            ads_state,
             device_state: read.read_u16::<LittleEndian>()?,
         })
     }
@@ -123,49 +133,56 @@ pub struct AdsNotificationSample {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StampHeader {
+pub struct AdsStampHeader {
     time_stamp: u64,
     samples: u32,
-    notification_samples: AdsNotificationSample,
+    notification_samples: Vec<AdsNotificationSample>,
 }
 
-impl ReadFrom for StampHeader {
-    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let time_stamp = read.read_u32::<LittleEndian>()?;
-        let samples = read.read_u32::<LittleEndian>()?;
-        let notification_handle = read.read_u32::<LittleEndian>()?;
-        let sample_size = read.read_u32::<LittleEndian>()?;
-        let mut data: Vec<u8> = Vec::new();
-        read.read_to_end(&mut data)?;
+impl ReadFrom for AdsStampHeader {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {        
+        let time_stamp = read.read_u64::<LittleEndian>()?;
+        let samples = read.read_u32::<LittleEndian>()?;        
+        let mut notification_samples: Vec<AdsNotificationSample> = Vec::with_capacity(samples as usize);
 
-        Ok(Self {
-            time_stamp: read.read_u64::<LittleEndian>()?,
-            samples: read.read_u32::<LittleEndian>()?,
-            notification_samples: AdsNotificationSample {
+        for n in 0..samples {            
+            let notification_handle = read.read_u32::<LittleEndian>()?;            
+            let sample_size = read.read_u32::<LittleEndian>()?;                        
+            let mut data = vec![0; sample_size as usize];                                    
+            read.read_exact(&mut data)?;                                    
+            notification_samples.push(AdsNotificationSample {
                 notification_handle,
                 sample_size,
                 data,
-            },
+            });
+        }        
+
+        Ok(Self {
+            time_stamp,
+            samples,
+            notification_samples,
         })
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct DeviceNotificationResponse {
+pub struct AdsNotificationStream {
     length: u32,
     stamps: u32,
-    ads_stamp_headers: Vec<StampHeader>,
+    ads_stamp_headers: Vec<AdsStampHeader>,
 }
 
-impl ReadFrom for DeviceNotificationResponse {
+impl ReadFrom for AdsNotificationStream {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         let length = read.read_u32::<LittleEndian>()?;
         let stamps = read.read_u32::<LittleEndian>()?;
-        let stamp_data_size = (length / stamps) as u64;
-        let mut ads_stamp_headers: Vec<StampHeader> = Vec::new();
+        let stamp_data_size = ((length / stamps)) as u64;        
+        let mut ads_stamp_headers: Vec<AdsStampHeader> = Vec::with_capacity(stamps as usize);                
+        let mut buffer: Vec<u8> = vec![0; stamp_data_size as usize];
 
-        for n in 0..stamps - 1 {
-            let stamp = StampHeader::read_from(&mut read.take(stamp_data_size))?;
+        for n in 0..stamps {            
+            read.read_exact(&mut buffer.as_mut_slice());            
+            let stamp = AdsStampHeader::read_from(&mut buffer.as_slice())?;            
             ads_stamp_headers.push(stamp);
         }
 
@@ -177,19 +194,20 @@ impl ReadFrom for DeviceNotificationResponse {
     }
 }
 
+//Asd Read response
 #[derive(Debug)]
-pub struct DataMessage {
+pub struct ReadResponse {
     result: u32,
     length: u32,
     data: Vec<u8>,
 }
 
-impl ReadFrom for DataMessage {
+impl ReadFrom for ReadResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         let result = read.read_u32::<LittleEndian>()?;
         let length = read.read_u32::<LittleEndian>()?;
         let mut data = Vec::with_capacity(length as usize);
-        read.read_exact(data.as_mut_slice())?;
+        read.read_to_end(&mut data)?;
         Ok(Self {
             result,
             length,
@@ -215,9 +233,7 @@ mod tests {
         let read_device_info_response =
             ReadDeviceInfoResponse::read_from(&mut response_data.as_slice()).unwrap();
 
-        let response = Response::ReadDeviceInfo(
-            read_device_info_response.clone()
-        );
+        let response = Response::ReadDeviceInfo(read_device_info_response.clone());
 
         assert_eq!(read_device_info_response.result, 259);
         assert_eq!(read_device_info_response.major_version, 2);
@@ -228,5 +244,107 @@ mod tests {
             72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0, 0, 0,
         ]; //Hello World
         assert_eq!(read_device_info_response.device_name, expected_device_name);
+    }
+
+    #[test]
+    fn read_response_test() {
+        let mut response_data: Vec<u8> = vec![4, 0, 0, 0, 2, 0, 0, 0, 255, 2];
+
+        let read_response = ReadResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        assert_eq!(read_response.result, 4);
+        assert_eq!(read_response.length, 2);
+        assert_eq!(read_response.data, vec![255, 2]);
+    }
+
+    #[test]
+    fn write_response_test() {
+        let mut response_data: Vec<u8> = vec![4, 0, 0, 0];
+
+        let write_response = WriteResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        assert_eq!(write_response.result, 4);
+    }
+
+    #[test]
+    fn read_state_response_test() {
+        let mut response_data: Vec<u8> = vec![4, 0, 0, 0, 9, 0, 1, 1];
+
+        let read_state_response =
+            ReadStateResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        assert_eq!(read_state_response.result, 4);
+        assert_eq!(
+            read_state_response.ads_state,
+            AdsState::AdsStatePowerFailure
+        );
+        assert_eq!(read_state_response.device_state, 257);
+    }
+
+    #[test]
+    fn write_control_response_test() {
+        let mut response_data: Vec<u8> = vec![4, 0, 0, 0];
+
+        let write_control_response = WriteControlResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        assert_eq!(write_control_response.result, 4);
+    }
+
+    #[test]
+    fn add_device_notification_response_test() {
+        let mut response_data: Vec<u8> = vec![4, 0, 0, 0, 10, 0, 0, 0];
+
+        let add_device_notification_response = AddDeviceNotificationResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        assert_eq!(add_device_notification_response.result, 4);
+        assert_eq!(add_device_notification_response.notification_handle, 10);
+    }
+
+    #[test]
+    fn delete_device_notification_response_test() {
+        let mut response_data: Vec<u8> = vec![4, 0, 0, 0];
+
+        let delete_device_notification_response = DeleteDeviceNotificationResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        assert_eq!(delete_device_notification_response.result, 4);
+    }
+
+    #[test]
+    fn ads_notification_stream_test() {
+        let mut notification_sample1: Vec<u8> = vec![4, 0, 0, 0, 2, 0, 0, 0, 6, 0];
+        let mut notification_sample2: Vec<u8> = vec![4, 0, 0, 0, 4, 0, 0, 0, 9, 0, 0, 0];
+
+        let mut stamp_header: Vec<u8> = vec![255, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0];
+        stamp_header.extend(notification_sample1);
+        stamp_header.extend(notification_sample2);
+
+        let mut notification_stream: Vec<u8> = vec![68, 0, 0, 0, 2, 0, 0, 0];
+        notification_stream.extend(stamp_header.clone());
+        notification_stream.extend(stamp_header);       
+
+        let notification_data = AdsNotificationStream::read_from(&mut notification_stream.as_slice()).unwrap();
+
+        assert_eq!(notification_data.length, 68, "Wrong data stream length");
+        assert_eq!(notification_data.stamps, 2, "Wrong data stream stamp count");
+        assert_eq!(notification_data.ads_stamp_headers.len(), 2, "Wrong stamp header vec length");
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples.len(), 2, "Wrong notification sample vec len [0]");        
+        assert_eq!(notification_data.ads_stamp_headers[0].samples, 2, "Wrong notification samples count [0]");
+        assert_eq!(notification_data.ads_stamp_headers[0].time_stamp, 255, "Wrong time stamp [0]");       
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples[0].notification_handle, 4, "Wrong notification handle [0][0]");
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples[0].sample_size, 2, "Wrong sample size [0][0]");
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples[0].data, vec![6, 0], "Wrong data [0][0]");
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples[1].notification_handle, 4, "Wrong notification handle [0][1]");
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples[1].sample_size, 4, "Wrong sample size [0][1]");
+        assert_eq!(notification_data.ads_stamp_headers[0].notification_samples[1].data, vec![9, 0, 0, 0], "Wrong data [0][1]");
+
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples.len(), 2, "Wrong notification sample vec len [1]");        
+        assert_eq!(notification_data.ads_stamp_headers[1].samples, 2, "Wrong notification samples count [1]");
+        assert_eq!(notification_data.ads_stamp_headers[1].time_stamp, 255, "Wrong time stamp [1]");       
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples[0].notification_handle, 4, "Wrong notification handle [1][0]");
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples[0].sample_size, 2, "Wrong sample size [1][0]");
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples[0].data, vec![6, 0], "Wrong data [1][0]");
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples[1].notification_handle, 4, "Wrong notification handle [1][1]");
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples[1].sample_size, 4, "Wrong sample size [1][1]");
+        assert_eq!(notification_data.ads_stamp_headers[1].notification_samples[1].data, vec![9, 0, 0, 0], "Wrong data [1][1]");    
     }
 }
