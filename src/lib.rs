@@ -1,4 +1,3 @@
-// #![deny(warnings)]
 #![allow(unused)]
 
 #[macro_use]

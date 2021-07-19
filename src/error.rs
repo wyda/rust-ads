@@ -1,17 +1,18 @@
-use snafu::{Backtrace, Snafu};
+use thiserror::Error;
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-#[derive(Debug, Snafu)]
-pub enum Error {
-    #[snafu(display("Element not initialized {}", msg))]
-    Uninitialized { msg: String },
-    #[snafu(display("The user id {} is invalid", user_id))]
-    UserIdInvalid { user_id: i32, backtrace: Backtrace },
+#[derive(Error, Debug, PartialEq)]
+pub enum AmsAddressError {        
+    #[error("Failed parsing address from &str")]
+    ParseError{            
+        source: std::num::ParseIntError           
+    },
+    #[error("Supplied address length {}! Expected a length of 6", length)]
+    InvalidAddressLength{
+        length: usize,
+    }, 
 }
 
-impl Error {
-    pub fn uninitialized<T: Into<String>>(msg: T) -> Self {
-        Error::Uninitialized { msg: msg.into() }
-    }
+#[derive(Error, Debug, PartialEq)]
+pub enum AdsError {
+    
 }
