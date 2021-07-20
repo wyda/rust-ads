@@ -3,6 +3,7 @@ use bytes::BufMut;
 use std::io::{self, Error, Write};
 
 use crate::proto::ads_state::AdsState;
+use crate::proto::command_id::CommandID;
 
 pub trait WriteTo {
     fn write_to<W: Write>(&self, wtr: W) -> io::Result<()>;
@@ -15,23 +16,104 @@ pub trait SendRecieve {
 
 #[derive(Debug)]
 pub enum Request {
+    Invalid(InvalidRequest),
+    ReadDeviceInfo(ReadDeviceInfoRequest),
+    ReadState(ReadStateRequest),
     Read(ReadRequest),
     Write(WriteRequest),
     WriteControl(WriteControlRequest),
     AddDeviceNotification(AddDeviceNotificationRequest),
-    DeleteDeviceNotification(u32),
+    DeleteDeviceNotification(DeleteDeviceNotificationRequest),
+    DeviceNotification(DeviceNotificationRequest),
     ReadWrite(ReadWriteRequest),
 }
 
 impl WriteTo for Request {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         match self {
+            Request::Invalid(_) => Ok(()),
+            Request::ReadDeviceInfo(_) => Ok(()),
+            Request::ReadState(_) => Ok(()),
             Request::Read(r) => r.write_to(wtr),
             Request::Write(r) => r.write_to(wtr),
             Request::ReadWrite(r) => r.write_to(wtr),
             Request::AddDeviceNotification(r) => r.write_to(wtr),
             Request::WriteControl(r) => r.write_to(wtr),
-            Request::DeleteDeviceNotification(r) => wtr.write_u32::<LittleEndian>(*r),
+            Request::DeviceNotification(_) => Ok(()),
+            Request::DeleteDeviceNotification(r) => r.write_to(wtr),
+        }
+    }
+}
+
+impl Request {
+    pub fn command_id(&self) -> CommandID {
+        match self {
+            Request::Invalid(r) => r.command_id,
+            Request::ReadDeviceInfo(r) => r.command_id,
+            Request::ReadState(r) => r.command_id,
+            Request::Read(r) => r.command_id,
+            Request::Write(r) => r.command_id,
+            Request::ReadWrite(r) => r.command_id,
+            Request::AddDeviceNotification(r) => r.command_id,
+            Request::WriteControl(r) => r.command_id,
+            Request::DeviceNotification(r) => r.command_id,
+            Request::DeleteDeviceNotification(r) => r.command_id,
+        }
+    }
+}
+
+/// ADS Invalid request
+#[derive(Debug, PartialEq)]
+pub struct InvalidRequest {
+    command_id: CommandID,
+}
+
+impl InvalidRequest {
+    fn new() -> Self {
+        InvalidRequest {
+            command_id: CommandID::Invalid,
+        }
+    }
+}
+
+/// ADS read device info request
+#[derive(Debug, PartialEq)]
+pub struct ReadDeviceInfoRequest {
+    command_id: CommandID,
+}
+
+impl ReadDeviceInfoRequest {
+    fn new() -> Self {
+        ReadDeviceInfoRequest {
+            command_id: CommandID::ReadDeviceInfo,
+        }
+    }
+}
+
+/// ADS read device info request
+#[derive(Debug, PartialEq)]
+pub struct ReadStateRequest {
+    command_id: CommandID,
+}
+
+impl ReadStateRequest {
+    fn new() -> Self {
+        ReadStateRequest {
+            command_id: CommandID::ReadState,
+        }
+    }
+}
+
+/// ADS read device info request
+#[derive(Debug, PartialEq)]
+pub struct DeviceNotificationRequest {
+    command_id: CommandID,
+}
+
+impl DeviceNotificationRequest {
+    fn new() -> Self {
+        DeviceNotificationRequest {
+            command_id: CommandID::DeviceNotification,
         }
     }
 }
@@ -42,6 +124,7 @@ pub struct ReadRequest {
     index_group: u32,
     index_offset: u32,
     length: u32,
+    command_id: CommandID,
 }
 
 impl ReadRequest {
@@ -50,6 +133,7 @@ impl ReadRequest {
             index_group,
             index_offset,
             length,
+            command_id: CommandID::Read,
         }
     }
 }
@@ -70,6 +154,7 @@ pub struct WriteRequest {
     index_offset: u32,
     length: u32,
     data: Vec<u8>,
+    command_id: CommandID,
 }
 
 impl WriteRequest {
@@ -79,6 +164,7 @@ impl WriteRequest {
             index_offset,
             length,
             data,
+            command_id: CommandID::Write,
         }
     }
 }
@@ -100,6 +186,7 @@ pub struct WriteControlRequest {
     device_state: u16,
     length: u32,
     data: Vec<u8>,
+    command_id: CommandID,
 }
 
 impl WriteControlRequest {
@@ -109,6 +196,7 @@ impl WriteControlRequest {
             device_state,
             length,
             data,
+            command_id: CommandID::WriteControl,
         }
     }
 }
@@ -133,6 +221,7 @@ pub struct AddDeviceNotificationRequest {
     max_delay: u32,
     cycle_time: u32,
     reserved: [u8; 16],
+    command_id: CommandID,
 }
 
 impl AddDeviceNotificationRequest {
@@ -152,6 +241,30 @@ impl AddDeviceNotificationRequest {
             max_delay,
             cycle_time,
             reserved: [0; 16],
+            command_id: CommandID::AddDeviceNotification,
+        }
+    }
+}
+
+/// ADS read device info request
+#[derive(Debug, PartialEq)]
+pub struct DeleteDeviceNotificationRequest {
+    handle: u32,
+    command_id: CommandID,
+}
+
+impl WriteTo for DeleteDeviceNotificationRequest {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.handle)?;
+        Ok(())
+    }
+}
+
+impl DeleteDeviceNotificationRequest {
+    fn new(handle: u32) -> Self {
+        DeleteDeviceNotificationRequest {
+            handle,
+            command_id: CommandID::DeleteDeviceNotification,
         }
     }
 }
@@ -201,6 +314,7 @@ pub struct ReadWriteRequest {
     read_length: u32,
     write_length: u32,
     data: Vec<u8>,
+    command_id: CommandID,
 }
 
 impl ReadWriteRequest {
@@ -217,6 +331,7 @@ impl ReadWriteRequest {
             read_length,
             write_length,
             data,
+            command_id: CommandID::ReadWrite,
         }
     }
 }
@@ -318,7 +433,7 @@ mod tests {
     #[test]
     fn delete_device_notification_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
-        let notification_handle = 1234;
+        let notification_handle = DeleteDeviceNotificationRequest::new(1234);
         Request::DeleteDeviceNotification(notification_handle).write_to(&mut buffer);
 
         let compare: Vec<u8> = vec![210, 4, 0, 0];

@@ -5,7 +5,7 @@ use std::io::{self, Error, Write};
 
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum CommandID {
+pub enum CommandID {
     Invalid,
     ReadDeviceInfo,
     Read,

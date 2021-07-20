@@ -294,11 +294,11 @@ pub enum AdsError {
     RtErrVmxEnableFails,
     //TCP Winsock error codes
     #[error("Unknown Ads error code. Possibly a Win32 error code (Winsock)")]
-    ErrUnknowAdsError { error_code: u16 },
+    ErrUnknowAdsError { error_code: u32 },
 }
 
-impl From<u16> for AdsError {
-    fn from(error_code: u16) -> Self {
+impl From<u32> for AdsError {
+    fn from(error_code: u32) -> Self {
         match error_code {
             //Global error codes
             0 => AdsError::ErrNoError,
@@ -445,7 +445,7 @@ impl From<u16> for AdsError {
 }
 
 impl AdsError {
-    fn as_u16(&self) -> u16 {
+    pub fn as_u32(&self) -> u32 {
         match self {
             //Global error codes
             AdsError::ErrNoError => 0,

@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
+
 #[derive(Debug)]
 pub struct NotifyMapping<'a> {
     id: u32,
