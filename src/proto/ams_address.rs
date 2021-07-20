@@ -1,4 +1,7 @@
 use crate::error::AmsAddressError;
+use crate::proto::request::WriteTo;
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::io::{self, Error, Write};
 
 pub struct AmsAddress {
     ams_net_id: AmsNetId,
@@ -11,9 +14,24 @@ impl AmsAddress {
     }
 }
 
+impl WriteTo for AmsAddress {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        self.ams_net_id.write_to(&mut wtr);
+        wtr.write_u16::<LittleEndian>(self.port)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AmsNetId {
     net_id: [u8; 6],
+}
+
+impl WriteTo for AmsNetId {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_all(&self.net_id[..])?;
+        Ok(())
+    }
 }
 
 impl From<[u8; 6]> for AmsNetId {
@@ -88,5 +106,17 @@ mod tests {
 
         assert_eq!(ams_address.port, port);
         assert_eq!(ams_address.ams_net_id.net_id, ams_net_id.net_id);
+    }
+
+    #[test]
+    fn ams_address_write_to_test() {
+        let ams_net_id = AmsNetId::parse("192.168.1.1.1.1").unwrap();
+        let port = 30000;
+        let ams_address = AmsAddress::new(ams_net_id.clone(), port);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        ams_address.write_to(&mut buffer);
+
+        assert_eq!(buffer, [192, 168, 1, 1, 1, 1, 48, 117]);
     }
 }

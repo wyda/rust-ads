@@ -96,7 +96,7 @@ impl WriteTo for WriteRequest {
 /// ADS Write Control
 #[derive(Debug, PartialEq)]
 pub struct WriteControlRequest {
-    ads_state: u16,
+    ads_state: AdsState,
     device_state: u16,
     length: u32,
     data: Vec<u8>,
@@ -105,7 +105,7 @@ pub struct WriteControlRequest {
 impl WriteControlRequest {
     fn new(ads_state: AdsState, device_state: u16, length: u32, data: Vec<u8>) -> Self {
         WriteControlRequest {
-            ads_state: AdsState::get_value(ads_state),
+            ads_state,
             device_state,
             length,
             data,
@@ -115,7 +115,7 @@ impl WriteControlRequest {
 
 impl WriteTo for WriteControlRequest {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u16::<LittleEndian>(self.ads_state)?;
+        self.ads_state.write_to(&mut wtr)?;
         wtr.write_u16::<LittleEndian>(self.device_state)?;
         wtr.write_u32::<LittleEndian>(self.length)?;
         wtr.write_all(self.data.as_slice())?;

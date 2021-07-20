@@ -15,6 +15,10 @@ pub enum Response {
     ReadWrite(ReadResponse),
 }
 
+pub trait ReadFrom: Sized {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self>;
+}
+
 /// ADS Read Device Info
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadDeviceInfoResponse {
@@ -66,18 +70,9 @@ pub struct ReadStateResponse {
 
 impl ReadFrom for ReadStateResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let result = read.read_u32::<LittleEndian>()?;
-
-        let mut ads_state;
-        if let Some(state) = AdsState::from_u16(read.read_u16::<LittleEndian>()?) {
-            ads_state = state;
-        } else {
-            panic!("Unknown AdsState value recieved") //ToDo return error
-        }
-
         Ok(Self {
-            result,
-            ads_state,
+            result: read.read_u32::<LittleEndian>()?,
+            ads_state: AdsState::from(read.read_u16::<LittleEndian>()?),
             device_state: read.read_u16::<LittleEndian>()?,
         })
     }
@@ -91,8 +86,9 @@ pub struct WriteControlResponse {
 
 impl ReadFrom for WriteControlResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let result = read.read_u32::<LittleEndian>()?;
-        Ok(Self { result })
+        Ok(Self {
+            result: read.read_u32::<LittleEndian>()?,
+        })
     }
 }
 
@@ -215,10 +211,6 @@ impl ReadFrom for ReadResponse {
             data,
         })
     }
-}
-
-pub trait ReadFrom: Sized {
-    fn read_from<R: Read>(read: &mut R) -> io::Result<Self>;
 }
 
 #[cfg(test)]

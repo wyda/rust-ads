@@ -1,4 +1,9 @@
-#[derive(Debug, PartialEq, Clone)]
+use crate::proto::request::WriteTo;
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::io::{self, Write};
+
+#[repr(u16)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AdsState {
     AdsStateInvalid,
     AdsStateIdle,
@@ -19,49 +24,87 @@ pub enum AdsState {
     AdsStateReconfig,
 }
 
-impl AdsState {
-    pub fn get_value(state: AdsState) -> u16 {
-        match state {
-            AdsState::AdsStateInvalid => 0,
-            AdsState::AdsStateIdle => 1,
-            AdsState::AdsStateReset => 2,
-            AdsState::AdsStateInit => 3,
-            AdsState::AdsStateStart => 4,
-            AdsState::AdsStateRun => 5,
-            AdsState::AdsStateStop => 6,
-            AdsState::AdsStateSaveCFG => 7,
-            AdsState::AdsStateLoadCFG => 8,
-            AdsState::AdsStatePowerFailure => 9,
-            AdsState::AdsStatePowerGood => 10,
-            AdsState::AdsStateError => 11,
-            AdsState::AdsStateShutDown => 12,
-            AdsState::AdsStateSuspend => 13,
-            AdsState::AdsStateResume => 14,
-            AdsState::AdsStateConfig => 15,
-            AdsState::AdsStateReconfig => 16,
+impl From<u16> for AdsState {
+    fn from(state_value: u16) -> Self {
+        match state_value {
+            0 => AdsState::AdsStateInvalid,
+            1 => AdsState::AdsStateIdle,
+            2 => AdsState::AdsStateReset,
+            3 => AdsState::AdsStateInit,
+            4 => AdsState::AdsStateStart,
+            5 => AdsState::AdsStateRun,
+            6 => AdsState::AdsStateStop,
+            7 => AdsState::AdsStateSaveCFG,
+            8 => AdsState::AdsStateLoadCFG,
+            9 => AdsState::AdsStatePowerFailure,
+            10 => AdsState::AdsStatePowerGood,
+            11 => AdsState::AdsStateError,
+            12 => AdsState::AdsStateShutDown,
+            13 => AdsState::AdsStateSuspend,
+            14 => AdsState::AdsStateResume,
+            15 => AdsState::AdsStateConfig,
+            16 => AdsState::AdsStateReconfig,
+            _ => AdsState::AdsStateInvalid,
         }
     }
+}
 
-    pub fn from_u16(state_value: u16) -> Option<Self> {
-        match state_value {
-            0 => Some(AdsState::AdsStateInvalid),
-            1 => Some(AdsState::AdsStateIdle),
-            2 => Some(AdsState::AdsStateReset),
-            3 => Some(AdsState::AdsStateInit),
-            4 => Some(AdsState::AdsStateStart),
-            5 => Some(AdsState::AdsStateRun),
-            6 => Some(AdsState::AdsStateStop),
-            7 => Some(AdsState::AdsStateSaveCFG),
-            8 => Some(AdsState::AdsStateLoadCFG),
-            9 => Some(AdsState::AdsStatePowerFailure),
-            10 => Some(AdsState::AdsStatePowerGood),
-            11 => Some(AdsState::AdsStateError),
-            12 => Some(AdsState::AdsStateShutDown),
-            13 => Some(AdsState::AdsStateSuspend),
-            14 => Some(AdsState::AdsStateResume),
-            15 => Some(AdsState::AdsStateConfig),
-            16 => Some(AdsState::AdsStateReconfig),
-            _ => None,
-        }
+impl WriteTo for AdsState {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u16::<LittleEndian>(*self as u16)?;
+        Ok(())
+    }
+}
+
+impl AdsState {
+    pub fn as_u16(&self) -> u16 {
+        *self as u16
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ads_state_from_test() {
+        assert_eq!(AdsState::from(0), AdsState::AdsStateInvalid);
+        assert_eq!(AdsState::from(1), AdsState::AdsStateIdle);
+        assert_eq!(AdsState::from(2), AdsState::AdsStateReset);
+        assert_eq!(AdsState::from(3), AdsState::AdsStateInit);
+        assert_eq!(AdsState::from(4), AdsState::AdsStateStart);
+        assert_eq!(AdsState::from(5), AdsState::AdsStateRun);
+        assert_eq!(AdsState::from(6), AdsState::AdsStateStop);
+        assert_eq!(AdsState::from(7), AdsState::AdsStateSaveCFG);
+        assert_eq!(AdsState::from(8), AdsState::AdsStateLoadCFG);
+        assert_eq!(AdsState::from(9), AdsState::AdsStatePowerFailure);
+        assert_eq!(AdsState::from(10), AdsState::AdsStatePowerGood);
+        assert_eq!(AdsState::from(11), AdsState::AdsStateError);
+        assert_eq!(AdsState::from(12), AdsState::AdsStateShutDown);
+        assert_eq!(AdsState::from(13), AdsState::AdsStateSuspend);
+        assert_eq!(AdsState::from(14), AdsState::AdsStateResume);
+        assert_eq!(AdsState::from(15), AdsState::AdsStateConfig);
+        assert_eq!(AdsState::from(16), AdsState::AdsStateReconfig);
+        assert_eq!(AdsState::from(999), AdsState::AdsStateInvalid);
+    }
+
+    #[test]
+    fn ads_state_as_u16_test() {
+        assert_eq!(AdsState::AdsStateInvalid.as_u16(), 0);
+        assert_eq!(AdsState::AdsStateIdle.as_u16(), 1);
+        assert_eq!(AdsState::AdsStateReset.as_u16(), 2);
+        assert_eq!(AdsState::AdsStateInit.as_u16(), 3);
+        assert_eq!(AdsState::AdsStateStart.as_u16(), 4);
+        assert_eq!(AdsState::AdsStateRun.as_u16(), 5);
+        assert_eq!(AdsState::AdsStateStop.as_u16(), 6);
+        assert_eq!(AdsState::AdsStateSaveCFG.as_u16(), 7);
+        assert_eq!(AdsState::AdsStateLoadCFG.as_u16(), 8);
+        assert_eq!(AdsState::AdsStatePowerFailure.as_u16(), 9);
+        assert_eq!(AdsState::AdsStatePowerGood.as_u16(), 10);
+        assert_eq!(AdsState::AdsStateError.as_u16(), 11);
+        assert_eq!(AdsState::AdsStateShutDown.as_u16(), 12);
+        assert_eq!(AdsState::AdsStateSuspend.as_u16(), 13);
+        assert_eq!(AdsState::AdsStateResume.as_u16(), 14);
+        assert_eq!(AdsState::AdsStateConfig.as_u16(), 15);
+        assert_eq!(AdsState::AdsStateReconfig.as_u16(), 16);
     }
 }
