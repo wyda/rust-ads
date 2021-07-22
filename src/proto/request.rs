@@ -69,10 +69,16 @@ pub struct InvalidRequest {
 }
 
 impl InvalidRequest {
-    fn new() -> Self {
+    pub fn new() -> Self {
         InvalidRequest {
             command_id: CommandID::Invalid,
         }
+    }
+}
+
+impl Default for InvalidRequest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -83,10 +89,16 @@ pub struct ReadDeviceInfoRequest {
 }
 
 impl ReadDeviceInfoRequest {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ReadDeviceInfoRequest {
             command_id: CommandID::ReadDeviceInfo,
         }
+    }
+}
+
+impl Default for ReadDeviceInfoRequest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -97,10 +109,16 @@ pub struct ReadStateRequest {
 }
 
 impl ReadStateRequest {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ReadStateRequest {
             command_id: CommandID::ReadState,
         }
+    }
+}
+
+impl Default for ReadStateRequest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -111,10 +129,16 @@ pub struct DeviceNotificationRequest {
 }
 
 impl DeviceNotificationRequest {
-    fn new() -> Self {
+    pub fn new() -> Self {
         DeviceNotificationRequest {
             command_id: CommandID::DeviceNotification,
         }
+    }
+}
+
+impl Default for DeviceNotificationRequest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -128,7 +152,7 @@ pub struct ReadRequest {
 }
 
 impl ReadRequest {
-    fn new(index_group: u32, index_offset: u32, length: u32) -> Self {
+    pub fn new(index_group: u32, index_offset: u32, length: u32) -> Self {
         ReadRequest {
             index_group,
             index_offset,
@@ -158,7 +182,7 @@ pub struct WriteRequest {
 }
 
 impl WriteRequest {
-    fn new(index_group: u32, index_offset: u32, length: u32, data: Vec<u8>) -> Self {
+    pub fn new(index_group: u32, index_offset: u32, length: u32, data: Vec<u8>) -> Self {
         WriteRequest {
             index_group,
             index_offset,
@@ -190,7 +214,7 @@ pub struct WriteControlRequest {
 }
 
 impl WriteControlRequest {
-    fn new(ads_state: AdsState, device_state: u16, length: u32, data: Vec<u8>) -> Self {
+    pub fn new(ads_state: AdsState, device_state: u16, length: u32, data: Vec<u8>) -> Self {
         WriteControlRequest {
             ads_state,
             device_state,
@@ -225,7 +249,7 @@ pub struct AddDeviceNotificationRequest {
 }
 
 impl AddDeviceNotificationRequest {
-    fn new(
+    pub fn new(
         index_group: u32,
         index_offset: u32,
         length: u32,
@@ -318,7 +342,7 @@ pub struct ReadWriteRequest {
 }
 
 impl ReadWriteRequest {
-    fn new(
+    pub fn new(
         index_group: u32,
         index_offset: u32,
         read_length: u32,

@@ -9,7 +9,7 @@ pub struct AmsAddress {
 }
 
 impl AmsAddress {
-    fn new(ams_net_id: AmsNetId, port: u16) -> Self {
+    pub fn new(ams_net_id: AmsNetId, port: u16) -> Self {
         AmsAddress { ams_net_id, port }
     }
 }
