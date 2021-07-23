@@ -1,5 +1,7 @@
-use super::ads_state::AdsState;
-use byteorder::{LittleEndian, ReadBytesExt};
+use crate::error::AdsError;
+use crate::proto::ads_state::AdsState;
+use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Error, Read, Write};
 
 #[derive(Debug)]
@@ -15,14 +17,18 @@ pub enum Response {
     ReadWrite(ReadResponse),
 }
 
-pub trait ReadFrom: Sized {
-    fn read_from<R: Read>(read: &mut R) -> io::Result<Self>;
-}
+/*impl WriteTo for Response {
+    fn write_to<W: Write>(&self, wtr: W) -> io::Result<()> {
+        match self {
+            Response::ReadDeviceInfo(r) => r.write_to(&mut wtr),
+        }
+    }
+}*/
 
 /// ADS Read Device Info
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadDeviceInfoResponse {
-    result: u32,
+    result: AdsError,
     major_version: u8,
     minor_version: u8,
     version_build: u16,
@@ -31,7 +37,7 @@ pub struct ReadDeviceInfoResponse {
 
 impl ReadFrom for ReadDeviceInfoResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let result = read.read_u32::<LittleEndian>()?;
+        let result = AdsError::from(read.read_u32::<LittleEndian>()?);
         let major_version = read.read_u8()?;
         let minor_version = read.read_u8()?;
         let version_build = read.read_u16::<LittleEndian>()?;
@@ -44,6 +50,35 @@ impl ReadFrom for ReadDeviceInfoResponse {
             version_build,
             device_name,
         })
+    }
+}
+
+impl WriteTo for ReadDeviceInfoResponse {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        wtr.write_u8(self.major_version);
+        wtr.write_u8(self.minor_version);
+        wtr.write_u16::<LittleEndian>(self.version_build);
+        wtr.write_all(&self.device_name);
+        Ok(())
+    }
+}
+
+impl ReadDeviceInfoResponse {
+    pub fn new(
+        result: AdsError,
+        major_version: u8,
+        minor_version: u8,
+        version_build: u16,
+        device_name: [u8; 16],
+    ) -> Self {
+        ReadDeviceInfoResponse {
+            result,
+            major_version,
+            minor_version,
+            version_build,
+            device_name,
+        }
     }
 }
 
@@ -216,6 +251,35 @@ impl ReadFrom for ReadResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryInto;
+
+    #[test]
+    fn read_device_info_response_write_to_test() {
+        let device_name = "MyDevice".as_bytes().try_into().unwrap();
+        let device_info_response =
+            ReadDeviceInfoResponse::new(AdsError::ErrNoError, 1, 2, 10, device_name);
+
+        let mut response_data: Vec<u8> = vec![
+            3, 1, 0, 0, 2, 14, 1, 1, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0,
+            0, 0,
+        ];
+
+        let read_device_info_response =
+            ReadDeviceInfoResponse::read_from(&mut response_data.as_slice()).unwrap();
+
+        let response = Response::ReadDeviceInfo(read_device_info_response.clone());
+
+        assert_eq!(read_device_info_response.result, 259);
+        assert_eq!(read_device_info_response.major_version, 2);
+        assert_eq!(read_device_info_response.minor_version, 14);
+        assert_eq!(read_device_info_response.version_build, 257);
+
+        let expected_device_name: [u8; 16] = [
+            72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0, 0, 0,
+        ]; //Hello World
+        assert_eq!(read_device_info_response.device_name, expected_device_name);
+    }
+
     #[test]
     fn read_device_info_response_test() {
         let mut response_data: Vec<u8> = vec![

@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum AmsAddressError {
     #[error("Failed parsing address from &str")]
     ParseError { source: std::num::ParseIntError },
@@ -8,7 +8,7 @@ pub enum AmsAddressError {
     InvalidAddressLength { length: usize },
 }
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum AdsError {
     //Global error codes
     #[error("No error")]

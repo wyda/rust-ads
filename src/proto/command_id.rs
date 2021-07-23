@@ -1,5 +1,6 @@
 use crate::error::AmsAddressError;
-use crate::proto::request::WriteTo;
+use crate::proto::proto_traits::{ReadFrom, WriteTo};
+
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{self, Error, Write};
 

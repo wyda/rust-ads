@@ -4,15 +4,7 @@ use std::io::{self, Error, Write};
 
 use crate::proto::ads_state::AdsState;
 use crate::proto::command_id::CommandID;
-
-pub trait WriteTo {
-    fn write_to<W: Write>(&self, wtr: W) -> io::Result<()>;
-}
-
-pub trait SendRecieve {
-    // TODO add router as param that implements read to write
-    fn send_receive(&self) -> io::Result<()>;
-}
+use crate::proto::proto_traits::{ReadFrom, WriteTo};
 
 #[derive(Debug)]
 pub enum Request {

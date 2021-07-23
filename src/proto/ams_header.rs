@@ -1,7 +1,8 @@
 use crate::error::AdsError;
 use crate::proto::ams_address::{AmsAddress, AmsNetId};
 use crate::proto::command_id::CommandID;
-use crate::proto::request::{ReadRequest, Request, WriteTo};
+use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
+use crate::proto::request::{ReadRequest, Request};
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{self, Write};
@@ -63,7 +64,7 @@ impl AmsHeader {
     pub fn new(
         ams_address_targed: AmsAddress,
         ams_address_source: AmsAddress,
-        state_flags: u16,
+        //state_flags,
         invoke_id: u32,
         request: Request,
     ) -> Self {
@@ -74,7 +75,8 @@ impl AmsHeader {
             ams_address_targed,
             ams_address_source,
             command_id: request.command_id(),
-            state_flags,
+            //ToDo muss das dritte bit immer gesetzt sein? Only TCP support at the moment (UDP -> 0x0044).
+            state_flags: 0x0004,
             length: data.len() as u32,
             ads_error: AdsError::ErrNoError,
             invoke_id,
@@ -99,7 +101,6 @@ mod tests {
         let ams_header = AmsHeader::new(
             AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
-            4,
             111,
             Request::Read(ReadRequest::new(259, 259, 4)),
         );
@@ -134,7 +135,6 @@ mod tests {
         let ams_header = AmsHeader::new(
             AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
-            4,
             111,
             Request::Read(ReadRequest::new(259, 259, 4)),
         );
@@ -151,7 +151,6 @@ mod tests {
         let ams_header = AmsHeader::new(
             AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
-            4,
             111,
             Request::Read(ReadRequest::new(259, 259, 4)),
         );

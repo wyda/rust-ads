@@ -1,8 +1,9 @@
 use crate::error::AmsAddressError;
-use crate::proto::request::WriteTo;
+use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{self, Error, Write};
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct AmsAddress {
     ams_net_id: AmsNetId,
     port: u16,
@@ -22,7 +23,7 @@ impl WriteTo for AmsAddress {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AmsNetId {
     net_id: [u8; 6],
 }
