@@ -85,20 +85,33 @@ impl ReadDeviceInfoResponse {
 ///Ads Write
 #[derive(Debug, PartialEq, Clone)]
 pub struct WriteResponse {
-    result: u32,
+    result: AdsError,
 }
 
 impl ReadFrom for WriteResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let result = read.read_u32::<LittleEndian>()?;
+        let result = AdsError::from(read.read_u32::<LittleEndian>()?);
         Ok(Self { result })
+    }
+}
+
+impl WriteTo for WriteResponse {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        Ok(())
+    }
+}
+
+impl WriteResponse {
+    pub fn new(result: AdsError) -> Self {
+        WriteResponse { result }
     }
 }
 
 /// ADS Read State
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadStateResponse {
-    result: u32,
+    result: AdsError,
     ads_state: AdsState,
     device_state: u16,
 }
@@ -106,24 +119,58 @@ pub struct ReadStateResponse {
 impl ReadFrom for ReadStateResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         Ok(Self {
-            result: read.read_u32::<LittleEndian>()?,
+            result: AdsError::from(read.read_u32::<LittleEndian>()?),
             ads_state: AdsState::from(read.read_u16::<LittleEndian>()?),
             device_state: read.read_u16::<LittleEndian>()?,
         })
     }
 }
 
+impl WriteTo for ReadStateResponse {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        self.ads_state.write_to(&mut wtr);
+        wtr.write_u16::<LittleEndian>(self.device_state);
+        Ok(())
+    }
+}
+
+impl ReadStateResponse {
+    pub fn new(result: AdsError, ads_state: AdsState, device_state: u16) -> Self {
+        ReadStateResponse {
+            result,
+            ads_state,
+            device_state,
+        }
+    }
+}
+
 ///Write control
 #[derive(Debug, PartialEq, Clone)]
 pub struct WriteControlResponse {
-    result: u32,
+    result: AdsError,
 }
 
 impl ReadFrom for WriteControlResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         Ok(Self {
-            result: read.read_u32::<LittleEndian>()?,
+            result: AdsError::from(read.read_u32::<LittleEndian>()?),
         })
+    }
+}
+
+impl WriteTo for WriteControlResponse {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        Ok(())
+    }
+}
+
+impl WriteControlResponse {
+    pub fn new(result: AdsError) -> Self {
+        WriteControlResponse {
+            result,
+        }
     }
 }
 
@@ -255,35 +302,29 @@ mod tests {
 
     #[test]
     fn read_device_info_response_write_to_test() {
-        let device_name = "MyDevice".as_bytes().try_into().unwrap();
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut device_name: [u8; 16] = [0; 16];
+
+        for (n, b) in "Device".as_bytes().iter().enumerate() {
+            device_name[n] = *b;
+        }
+
         let device_info_response =
-            ReadDeviceInfoResponse::new(AdsError::ErrNoError, 1, 2, 10, device_name);
+            ReadDeviceInfoResponse::new(AdsError::ErrAccessDenied, 1, 2, 10, device_name);
 
         let mut response_data: Vec<u8> = vec![
-            3, 1, 0, 0, 2, 14, 1, 1, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0,
-            0, 0,
+            30, 0, 0, 0, 1, 2, 10, 0, 68, 101, 118, 105, 99, 101, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
 
-        let read_device_info_response =
-            ReadDeviceInfoResponse::read_from(&mut response_data.as_slice()).unwrap();
+        device_info_response.write_to(&mut buffer);
 
-        let response = Response::ReadDeviceInfo(read_device_info_response.clone());
-
-        assert_eq!(read_device_info_response.result, 259);
-        assert_eq!(read_device_info_response.major_version, 2);
-        assert_eq!(read_device_info_response.minor_version, 14);
-        assert_eq!(read_device_info_response.version_build, 257);
-
-        let expected_device_name: [u8; 16] = [
-            72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0, 0, 0,
-        ]; //Hello World
-        assert_eq!(read_device_info_response.device_name, expected_device_name);
+        assert_eq!(buffer, response_data);
     }
 
     #[test]
     fn read_device_info_response_test() {
         let mut response_data: Vec<u8> = vec![
-            3, 1, 0, 0, 2, 14, 1, 1, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0,
+            30, 0, 0, 0, 2, 14, 1, 1, 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0,
             0, 0,
         ];
 
@@ -292,7 +333,7 @@ mod tests {
 
         let response = Response::ReadDeviceInfo(read_device_info_response.clone());
 
-        assert_eq!(read_device_info_response.result, 259);
+        assert_eq!(read_device_info_response.result, AdsError::ErrAccessDenied);
         assert_eq!(read_device_info_response.major_version, 2);
         assert_eq!(read_device_info_response.minor_version, 14);
         assert_eq!(read_device_info_response.version_build, 257);
@@ -320,7 +361,15 @@ mod tests {
 
         let write_response = WriteResponse::read_from(&mut response_data.as_slice()).unwrap();
 
-        assert_eq!(write_response.result, 4);
+        assert_eq!(write_response.result, AdsError::from(4));
+    }
+
+    #[test]
+    fn write_response_write_to_test() {
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut write_response = WriteResponse::new(AdsError::ErrAccessDenied);
+        write_response.write_to(&mut buffer);
+        assert_eq!(buffer, [30, 0, 0, 0]);
     }
 
     #[test]
@@ -330,7 +379,7 @@ mod tests {
         let read_state_response =
             ReadStateResponse::read_from(&mut response_data.as_slice()).unwrap();
 
-        assert_eq!(read_state_response.result, 4);
+        assert_eq!(read_state_response.result, AdsError::ErrInsertMailBox);
         assert_eq!(
             read_state_response.ads_state,
             AdsState::AdsStatePowerFailure
@@ -339,14 +388,33 @@ mod tests {
     }
 
     #[test]
+    fn read_state_response_write_to_test() {
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut read_state_response =
+            ReadStateResponse::new(AdsError::ErrAccessDenied, AdsState::AdsStateConfig, 4);
+        read_state_response.write_to(&mut buffer);
+        assert_eq!(buffer, [30, 0, 0, 0, 15, 0, 4, 0]);
+    }
+
+    #[test]
     fn write_control_response_test() {
-        let mut response_data: Vec<u8> = vec![4, 0, 0, 0];
+        let mut response_data: Vec<u8> = vec![30, 0, 0, 0];
 
         let write_control_response =
             WriteControlResponse::read_from(&mut response_data.as_slice()).unwrap();
 
-        assert_eq!(write_control_response.result, 4);
+        assert_eq!(write_control_response.result, AdsError::ErrAccessDenied);
     }
+
+    #[test]
+    fn write_control_response_write_to_test() {
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut read_state_response =
+        WriteControlResponse::new(AdsError::ErrAccessDenied);
+        read_state_response.write_to(&mut buffer);
+        assert_eq!(buffer, [30, 0, 0, 0]);
+    }
+
 
     #[test]
     fn add_device_notification_response_test() {
