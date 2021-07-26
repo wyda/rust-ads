@@ -238,6 +238,20 @@ pub struct AdsNotificationSample {
     data: Vec<u8>,
 }
 
+impl AdsNotificationSample {
+    pub fn new(notification_handle: u32, data: Vec<u8>) -> Self {
+        AdsNotificationSample {
+            notification_handle,
+            sample_size: data.len() as u32,
+            data,
+        }
+    }
+    pub fn len(&self) -> usize {
+        //plus fixed byte length (notification_handle, sample_size)
+        self.data.len() + 8
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct AdsStampHeader {
     time_stamp: u64,
@@ -272,6 +286,43 @@ impl ReadFrom for AdsStampHeader {
     }
 }
 
+impl WriteTo for AdsStampHeader {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u64::<LittleEndian>(self.time_stamp);
+        wtr.write_u32::<LittleEndian>(self.samples);
+
+        for sample in &self.notification_samples {
+            wtr.write_u32::<LittleEndian>(sample.notification_handle);
+            wtr.write_u32::<LittleEndian>(sample.sample_size);
+            wtr.write_all(sample.data.as_slice());
+        }
+        Ok(())
+    }
+}
+
+impl AdsStampHeader {
+    pub fn new(
+        time_stamp: u64,
+        samples: u32,
+        notification_samples: Vec<AdsNotificationSample>,
+    ) -> Self {
+        AdsStampHeader {
+            time_stamp,
+            samples,
+            notification_samples,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        let mut len: usize = 0;
+        for sample in &self.notification_samples {
+            len += sample.len();
+        }
+        //plus fixed byte size (time_stamp, samples)
+        len + 12
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct AdsNotificationStream {
     length: u32,
@@ -298,6 +349,37 @@ impl ReadFrom for AdsNotificationStream {
             stamps,
             ads_stamp_headers,
         })
+    }
+}
+
+impl WriteTo for AdsNotificationStream {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.length);
+        wtr.write_u32::<LittleEndian>(self.stamps);
+
+        for stamp_header in &self.ads_stamp_headers {
+            stamp_header.write_to(&mut wtr);
+        }
+        Ok(())
+    }
+}
+
+impl AdsNotificationStream {
+    pub fn new(length: u32, stamps: u32, ads_stamp_headers: Vec<AdsStampHeader>) -> Self {
+        AdsNotificationStream {
+            length,
+            stamps,
+            ads_stamp_headers,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        let mut len: usize = 0;
+        for stamp in &self.ads_stamp_headers {
+            len += stamp.len();
+        }
+        //plus fixed byte size (length, stamps)
+        len + 8
     }
 }
 
@@ -623,4 +705,105 @@ mod tests {
             "Wrong data [1][1]"
         );
     }
+}
+
+#[test]
+fn ads_notification_stream_write_to_test() {
+    //4+4+4=12byte
+    let sample_data1: u32 = 1000;
+    let notification_sample1 = AdsNotificationSample {
+        notification_handle: 10,
+        sample_size: 4,
+        data: sample_data1.to_le_bytes().to_vec(),
+    };
+
+    //4+4+2=10byte
+    let sample_data2: u16 = 2000;
+    let notification_sample2 = AdsNotificationSample {
+        notification_handle: 20,
+        sample_size: 2,
+        data: sample_data2.to_le_bytes().to_vec(),
+    };
+
+    //4+4+8=16byte
+    let sample_data3: u64 = 3000;
+    let notification_sample3 = AdsNotificationSample {
+        notification_handle: 30,
+        sample_size: 8,
+        data: sample_data3.to_le_bytes().to_vec(),
+    };
+
+    //8+4+12+10=34byte
+    let mut notification_samples = Vec::new();
+    notification_samples.push(notification_sample1);
+    notification_samples.push(notification_sample2);
+    let stamp_header1 = AdsStampHeader::new(1234567890, 2, notification_samples);
+
+    //8+4+16=28byte
+    let mut notification_samples = Vec::new();
+    notification_samples.push(notification_sample3);
+    let stamp_header2 = AdsStampHeader::new(1234567890, 1, notification_samples);
+
+    let mut stamp_headers = Vec::new();
+    stamp_headers.push(stamp_header1);
+    stamp_headers.push(stamp_header2);
+
+    let mut len: usize = 0;
+    for header in &stamp_headers {
+        len += header.len();
+    }
+
+    let expected_len: usize = 62;
+    assert_eq!(&len, &expected_len, "Wrong number of bytes");
+
+    //4+4+34+28=70byte
+    let ads_notification_stream =
+        AdsNotificationStream::new(len as u32, stamp_headers.len() as u32, stamp_headers);
+
+    let expected_len: usize = 70;
+    assert_eq!(
+        &ads_notification_stream.len(),
+        &expected_len,
+        "Wrong number of bytes"
+    );
+
+    let mut buffer: Vec<u8> = Vec::new();
+
+    ads_notification_stream.write_to(&mut buffer);
+
+    #[rustfmt::skip]
+    let expected_data = [
+        //Notification stream Length
+        62, 0, 0, 0,
+        ////Notification stream number of stamps
+        2, 0, 0, 0, 
+        //Stamp header1 time_stamp
+        210, 2, 150, 73, 0, 0, 0, 0, 
+        //Stamp header1 number of samples
+        2, 0, 0, 0, 
+        //Notification sample 1 notification handle
+        10, 0, 0, 0, 
+        //Notification sample 1 sample size
+        4, 0, 0, 0,
+        //Notification sample 1 data
+        232, 3, 0, 0, 
+        //Notification sample 2 notification handle
+        20, 0, 0, 0, 
+        //Notification sample 2 sample size
+        2, 0, 0, 0, 
+        //Notification sample 2 data
+        208, 7, 
+        //Stamp header2 time_stamp
+        210, 2, 150, 73, 0, 0, 0, 0, 
+        //Stamp header2 number of samples
+        1, 0, 0, 0, 
+        //Notification sample 3 notification handle
+        30, 0, 0, 0,
+        //Notification sample 3 sample size
+        8, 0, 0, 0, 
+        //Notification sample 3 data
+        184, 11, 0, 0, 0, 0, 0, 0,
+    ];
+
+    assert_eq!(buffer, expected_data, "Data in buffer is not as expected");
 }
