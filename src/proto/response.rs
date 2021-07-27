@@ -17,13 +17,21 @@ pub enum Response {
     ReadWrite(ReadResponse),
 }
 
-/*impl WriteTo for Response {
-    fn write_to<W: Write>(&self, wtr: W) -> io::Result<()> {
+impl WriteTo for Response {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         match self {
-            Response::ReadDeviceInfo(r) => r.write_to(&mut wtr),
+            Response::ReadDeviceInfo(w) => w.write_to(&mut wtr),
+            Response::Read(w) => w.write_to(&mut wtr),
+            Response::Write(w) => w.write_to(&mut wtr),
+            Response::ReadState(w) => w.write_to(&mut wtr),
+            Response::WriteControl(w) => w.write_to(&mut wtr),
+            Response::AddDeviceNotification(w) => w.write_to(&mut wtr),
+            Response::DeleteDeviceNotification(w) => w.write_to(&mut wtr),
+            Response::DeviceNotification(w) => w.write_to(&mut wtr),
+            Response::ReadWrite(w) => w.write_to(&mut wtr),
         }
     }
-}*/
+}
 
 /// ADS Read Device Info
 #[derive(Debug, PartialEq, Clone)]

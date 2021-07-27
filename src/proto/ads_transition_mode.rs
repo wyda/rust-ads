@@ -14,12 +14,12 @@ impl From<u32> for AdsTransMode {
     fn from(state_value: u32) -> Self {
         match state_value {
             0 => AdsTransMode::None,
-            2 => AdsTransMode::ClientCylcle,
-            3 => AdsTransMode::ClientOnChange,
-            4 => AdsTransMode::Cyclic,
-            5 => AdsTransMode::OnChange,
-            6 => AdsTransMode::CyclicInContext,
-            7 => AdsTransMode::OnChangeInContext,
+            1 => AdsTransMode::ClientCylcle,
+            2 => AdsTransMode::ClientOnChange,
+            3 => AdsTransMode::Cyclic,
+            4 => AdsTransMode::OnChange,
+            5 => AdsTransMode::CyclicInContext,
+            6 => AdsTransMode::OnChangeInContext,
             _ => AdsTransMode::None,
         }
     }

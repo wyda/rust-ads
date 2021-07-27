@@ -1,8 +1,9 @@
-use byteorder::{LittleEndian, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use bytes::BufMut;
-use std::io::{self, Error, Write};
+use std::io::{self, Error, Read, Write};
 
 use crate::proto::ads_state::AdsState;
+use crate::proto::ads_transition_mode::AdsTransMode;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
 
@@ -163,6 +164,17 @@ impl WriteTo for ReadRequest {
     }
 }
 
+impl ReadFrom for ReadRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        Ok(ReadRequest {
+            index_group: read.read_u32::<LittleEndian>()?,
+            index_offset: read.read_u32::<LittleEndian>()?,
+            length: read.read_u32::<LittleEndian>()?,
+            command_id: CommandID::Read,
+        })
+    }
+}
+
 ///ADS Write
 #[derive(Debug, PartialEq)]
 pub struct WriteRequest {
@@ -192,6 +204,24 @@ impl WriteTo for WriteRequest {
         wtr.write_u32::<LittleEndian>(self.length)?;
         wtr.write_all(self.data.as_slice())?;
         Ok(())
+    }
+}
+
+impl ReadFrom for WriteRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let index_group = read.read_u32::<LittleEndian>()?;
+        let index_offset = read.read_u32::<LittleEndian>()?;
+        let length = read.read_u32::<LittleEndian>()?;
+        let mut data: Vec<u8> = Vec::with_capacity(length as usize);
+        read.read_to_end(&mut data);
+
+        Ok(WriteRequest {
+            index_group,
+            index_offset,
+            length,
+            data,
+            command_id: CommandID::Write,
+        })
     }
 }
 
@@ -227,13 +257,30 @@ impl WriteTo for WriteControlRequest {
     }
 }
 
+impl ReadFrom for WriteControlRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let ads_state = AdsState::from(read.read_u16::<LittleEndian>()?);
+        let device_state = read.read_u16::<LittleEndian>()?;
+        let length = read.read_u32::<LittleEndian>()?;
+        let mut data: Vec<u8> = Vec::with_capacity(length as usize);
+        read.read_to_end(&mut data);
+        Ok(WriteControlRequest {
+            ads_state,
+            device_state,
+            length,
+            data,
+            command_id: CommandID::WriteControl,
+        })
+    }
+}
+
 /// ADS Add Device Notification
 #[derive(Debug, PartialEq, Clone)]
 pub struct AddDeviceNotificationRequest {
     index_group: u32,
     index_offset: u32,
     length: u32,
-    transmission_mode: u32,
+    transmission_mode: AdsTransMode,
     max_delay: u32,
     cycle_time: u32,
     reserved: [u8; 16],
@@ -253,12 +300,44 @@ impl AddDeviceNotificationRequest {
             index_group,
             index_offset,
             length,
-            transmission_mode: AdsTransMode::get_value(transmission_mode),
+            transmission_mode,
             max_delay,
             cycle_time,
             reserved: [0; 16],
             command_id: CommandID::AddDeviceNotification,
         }
+    }
+}
+
+impl WriteTo for AddDeviceNotificationRequest {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        println!(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!{:?}",
+            self.transmission_mode.as_u32()
+        );
+        wtr.write_u32::<LittleEndian>(self.index_group)?;
+        wtr.write_u32::<LittleEndian>(self.index_offset)?;
+        wtr.write_u32::<LittleEndian>(self.length)?;
+        wtr.write_u32::<LittleEndian>(self.transmission_mode.as_u32())?;
+        wtr.write_u32::<LittleEndian>(self.max_delay)?;
+        wtr.write_u32::<LittleEndian>(self.cycle_time)?;
+        wtr.write_all(&self.reserved);
+        Ok(())
+    }
+}
+
+impl ReadFrom for AddDeviceNotificationRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        Ok(AddDeviceNotificationRequest {
+            index_group: read.read_u32::<LittleEndian>()?,
+            index_offset: read.read_u32::<LittleEndian>()?,
+            length: read.read_u32::<LittleEndian>()?,
+            transmission_mode: AdsTransMode::from(read.read_u32::<LittleEndian>()?),
+            max_delay: read.read_u32::<LittleEndian>()?,
+            cycle_time: read.read_u32::<LittleEndian>()?,
+            reserved: [0; 16],
+            command_id: CommandID::AddDeviceNotification,
+        })
     }
 }
 
@@ -276,48 +355,20 @@ impl WriteTo for DeleteDeviceNotificationRequest {
     }
 }
 
+impl ReadFrom for DeleteDeviceNotificationRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        Ok(DeleteDeviceNotificationRequest {
+            handle: read.read_u32::<LittleEndian>()?,
+            command_id: CommandID::DeleteDeviceNotification,
+        })
+    }
+}
+
 impl DeleteDeviceNotificationRequest {
     fn new(handle: u32) -> Self {
         DeleteDeviceNotificationRequest {
             handle,
             command_id: CommandID::DeleteDeviceNotification,
-        }
-    }
-}
-
-impl WriteTo for AddDeviceNotificationRequest {
-    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.index_group)?;
-        wtr.write_u32::<LittleEndian>(self.index_offset)?;
-        wtr.write_u32::<LittleEndian>(self.length)?;
-        wtr.write_u32::<LittleEndian>(self.transmission_mode)?;
-        wtr.write_u32::<LittleEndian>(self.max_delay)?;
-        wtr.write_u32::<LittleEndian>(self.cycle_time)?;
-        wtr.write_all(&self.reserved);
-        Ok(())
-    }
-}
-
-pub enum AdsTransMode {
-    None,
-    ClientCylcle,
-    ClientOnChange,
-    Cyclic,
-    OnChange,
-    CyclicInContext,
-    OnChangeInContext,
-}
-
-impl AdsTransMode {
-    pub fn get_value(mode: AdsTransMode) -> u32 {
-        match mode {
-            AdsTransMode::None => 0,
-            AdsTransMode::ClientCylcle => 1,
-            AdsTransMode::ClientOnChange => 2,
-            AdsTransMode::Cyclic => 3,
-            AdsTransMode::OnChange => 4,
-            AdsTransMode::CyclicInContext => 5,
-            AdsTransMode::OnChangeInContext => 6,
         }
     }
 }
@@ -363,6 +414,26 @@ impl WriteTo for ReadWriteRequest {
     }
 }
 
+impl ReadFrom for ReadWriteRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let index_group = read.read_u32::<LittleEndian>()?;
+        let index_offset = read.read_u32::<LittleEndian>()?;
+        let read_length = read.read_u32::<LittleEndian>()?;
+        let write_length = read.read_u32::<LittleEndian>()?;
+        let mut data: Vec<u8> = Vec::with_capacity(write_length as usize);
+        read.read_to_end(&mut data);
+
+        Ok(ReadWriteRequest {
+            index_group,
+            index_offset,
+            read_length,
+            write_length,
+            data,
+            command_id: CommandID::ReadWrite,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +444,17 @@ mod tests {
 
         let compare: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0];
         assert_eq!(compare, buffer);
+    }
+
+    #[test]
+    fn read_request_read_from_test() {
+        let mut reader: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0];
+        let read_request = ReadRequest::read_from(&mut reader.as_slice()).unwrap();
+
+        let compare = ReadRequest::new(259, 259, 4);
+        assert_eq!(read_request.index_group, compare.index_group);
+        assert_eq!(read_request.index_offset, compare.index_offset);
+        assert_eq!(read_request.length, compare.length);
     }
 
     #[test]
@@ -398,6 +480,26 @@ mod tests {
     }
 
     #[test]
+    fn write_request_read_from_test() {
+        let mut reader: Vec<u8> = vec![4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 225, 46, 0, 0];
+        let read_request = WriteRequest::read_from(&mut reader.as_slice()).unwrap();
+        let data_value: u32 = 12001;
+        let data = data_value.to_le_bytes();
+        let compare = WriteRequest::new(260, 260, 4, data.to_vec());
+
+        assert_eq!(
+            read_request.index_group, compare.index_group,
+            "Wrong index group"
+        );
+        assert_eq!(
+            read_request.index_offset, compare.index_offset,
+            "Wrong index offset"
+        );
+        assert_eq!(read_request.length, compare.length, "Wrong length");
+        assert_eq!(read_request.data, data, "Data not as expected");
+    }
+
+    #[test]
     fn write_control_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
         let data: u8 = 0;
@@ -414,6 +516,23 @@ mod tests {
     }
 
     #[test]
+    fn write_contro_request_read_from_test() {
+        let mut reader: Vec<u8> = vec![1, 0, 40, 1, 1, 0, 0, 0, 0, 0, 0, 0];
+        let request = WriteControlRequest::read_from(&mut reader.as_slice()).unwrap();
+        let data_value: u32 = 0;
+        let data = data_value.to_le_bytes();
+        let compare = WriteControlRequest::new(AdsState::AdsStateIdle, 296, 1, data.to_vec());
+
+        assert_eq!(request.ads_state, compare.ads_state, "Wrong Ads state");
+        assert_eq!(
+            request.device_state, compare.device_state,
+            "Wrong device state"
+        );
+        assert_eq!(request.length, compare.length, "Wrong length");
+        assert_eq!(request.data, data, "Data not as expected"); //4 byte -> data_value is u32
+    }
+
+    #[test]
     fn read_write_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
         let data: u32 = 40000;
@@ -424,6 +543,34 @@ mod tests {
             3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 64, 156, 0, 0,
         ];
         assert_eq!(compare, buffer);
+    }
+
+    #[test]
+    fn read_write_request_read_from_test() {
+        let mut reader: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0];
+        let request = ReadWriteRequest::read_from(&mut reader.as_slice()).unwrap();
+        let data_value: u16 = 0;
+        let data = data_value.to_le_bytes();
+        let compare = ReadWriteRequest::new(259, 259, 4, 4, data.to_vec());
+
+        assert_eq!(
+            request.index_group, compare.index_group,
+            "Wrong index group"
+        );
+        assert_eq!(
+            request.index_offset, compare.index_offset,
+            "Wrong index offset"
+        );
+        assert_eq!(
+            request.read_length, compare.read_length,
+            "Wrong read length"
+        );
+        assert_eq!(
+            request.write_length, compare.write_length,
+            "Wrong write length"
+        );
+        assert_eq!(request.command_id, compare.command_id, "Wrong command id");
+        assert_eq!(request.data, data, "Data not as expected"); //2 byte -> data_value is u16
     }
 
     #[test]
@@ -447,6 +594,41 @@ mod tests {
     }
 
     #[test]
+    fn add_device_notification_request_read_from_test() {
+        let mut reader: Vec<u8> = vec![
+            3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let request = AddDeviceNotificationRequest::read_from(&mut reader.as_slice()).unwrap();
+        let data_value: u16 = 0;
+        let data = data_value.to_le_bytes();
+        let compare = AddDeviceNotificationRequest::new(259, 259, 4, AdsTransMode::Cyclic, 5, 1);
+
+        assert_eq!(
+            request.index_group, compare.index_group,
+            "Wrong index group"
+        );
+        assert_eq!(
+            request.index_offset, compare.index_offset,
+            "Wrong index offset"
+        );
+        assert_eq!(request.length, compare.length, "Wrong length");
+        assert_eq!(
+            request.transmission_mode, compare.transmission_mode,
+            "Wrong transmission mode"
+        );
+        assert_eq!(
+            request.max_delay, compare.max_delay,
+            "Wrong max delay wrong"
+        );
+        assert_eq!(request.cycle_time, compare.cycle_time, "Wrong cycle time");
+        assert_eq!(
+            request.reserved, compare.reserved,
+            "Reserved not as expected"
+        );
+    }
+
+    #[test]
     fn delete_device_notification_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
         let notification_handle = DeleteDeviceNotificationRequest::new(1234);
@@ -454,5 +636,15 @@ mod tests {
 
         let compare: Vec<u8> = vec![210, 4, 0, 0];
         assert_eq!(compare, buffer);
+    }
+
+    #[test]
+    fn delete_device_notification_request_read_from_test() {
+        let mut reader: Vec<u8> = vec![210, 4, 0, 0];
+        let request = DeleteDeviceNotificationRequest::read_from(&mut reader.as_slice()).unwrap();
+        let compare = DeleteDeviceNotificationRequest::new(1234);
+
+        assert_eq!(request.handle, compare.handle, "Wrong handle");
+        assert_eq!(request.command_id, compare.command_id, "Wrong command id");
     }
 }
