@@ -1,8 +1,8 @@
 use crate::error::AmsAddressError;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
 
-use byteorder::{LittleEndian, WriteBytesExt};
-use std::io::{self, Error, Write};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{self, Error, Read, Write};
 
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -23,6 +23,12 @@ impl WriteTo for CommandID {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         wtr.write_u16::<LittleEndian>(*self as u16)?;
         Ok(())
+    }
+}
+
+impl ReadFrom for CommandID {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        Ok(CommandID::from(read.read_u16::<LittleEndian>()?))
     }
 }
 
@@ -66,6 +72,13 @@ mod tests {
         let mut buffer: Vec<u8> = Vec::new();
         let result = CommandID::Read.write_to(&mut buffer);
         assert_eq!(buffer, [2, 0]);
+    }
+
+    #[test]
+    fn command_id_read_from_test() {
+        let mut data: Vec<u8> = vec![3, 0];
+        let command_id = CommandID::read_from(&mut data.as_slice()).unwrap();
+        assert_eq!(command_id, CommandID::Write);
     }
 
     #[test]

@@ -311,14 +311,10 @@ impl AddDeviceNotificationRequest {
 
 impl WriteTo for AddDeviceNotificationRequest {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        println!(
-            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!{:?}",
-            self.transmission_mode.as_u32()
-        );
         wtr.write_u32::<LittleEndian>(self.index_group)?;
         wtr.write_u32::<LittleEndian>(self.index_offset)?;
         wtr.write_u32::<LittleEndian>(self.length)?;
-        wtr.write_u32::<LittleEndian>(self.transmission_mode.as_u32())?;
+        self.transmission_mode.write_to(&mut wtr);
         wtr.write_u32::<LittleEndian>(self.max_delay)?;
         wtr.write_u32::<LittleEndian>(self.cycle_time)?;
         wtr.write_all(&self.reserved);
@@ -332,7 +328,7 @@ impl ReadFrom for AddDeviceNotificationRequest {
             index_group: read.read_u32::<LittleEndian>()?,
             index_offset: read.read_u32::<LittleEndian>()?,
             length: read.read_u32::<LittleEndian>()?,
-            transmission_mode: AdsTransMode::from(read.read_u32::<LittleEndian>()?),
+            transmission_mode: AdsTransMode::read_from(read)?,
             max_delay: read.read_u32::<LittleEndian>()?,
             cycle_time: read.read_u32::<LittleEndian>()?,
             reserved: [0; 16],
@@ -449,12 +445,12 @@ mod tests {
     #[test]
     fn read_request_read_from_test() {
         let mut reader: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0];
-        let read_request = ReadRequest::read_from(&mut reader.as_slice()).unwrap();
+        let request = ReadRequest::read_from(&mut reader.as_slice()).unwrap();
 
         let compare = ReadRequest::new(259, 259, 4);
-        assert_eq!(read_request.index_group, compare.index_group);
-        assert_eq!(read_request.index_offset, compare.index_offset);
-        assert_eq!(read_request.length, compare.length);
+        assert_eq!(request.index_group, compare.index_group);
+        assert_eq!(request.index_offset, compare.index_offset);
+        assert_eq!(request.length, compare.length);
     }
 
     #[test]
@@ -482,21 +478,21 @@ mod tests {
     #[test]
     fn write_request_read_from_test() {
         let mut reader: Vec<u8> = vec![4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 225, 46, 0, 0];
-        let read_request = WriteRequest::read_from(&mut reader.as_slice()).unwrap();
+        let request = WriteRequest::read_from(&mut reader.as_slice()).unwrap();
         let data_value: u32 = 12001;
         let data = data_value.to_le_bytes();
         let compare = WriteRequest::new(260, 260, 4, data.to_vec());
 
         assert_eq!(
-            read_request.index_group, compare.index_group,
+            request.index_group, compare.index_group,
             "Wrong index group"
         );
         assert_eq!(
-            read_request.index_offset, compare.index_offset,
+            request.index_offset, compare.index_offset,
             "Wrong index offset"
         );
-        assert_eq!(read_request.length, compare.length, "Wrong length");
-        assert_eq!(read_request.data, data, "Data not as expected");
+        assert_eq!(request.length, compare.length, "Wrong length");
+        assert_eq!(request.data, data, "Data not as expected");
     }
 
     #[test]
