@@ -254,7 +254,7 @@ impl AdsNotificationSample {
             data,
         }
     }
-    pub fn len(&self) -> usize {
+    pub fn sample_len(&self) -> usize {
         //plus fixed byte length (notification_handle, sample_size)
         self.data.len() + 8
     }
@@ -321,10 +321,10 @@ impl AdsStampHeader {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn stamp_len(&self) -> usize {
         let mut len: usize = 0;
         for sample in &self.notification_samples {
-            len += sample.len();
+            len += sample.sample_len();
         }
         //plus fixed byte size (time_stamp, samples)
         len + 12
@@ -381,10 +381,10 @@ impl AdsNotificationStream {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn stream_len(&self) -> usize {
         let mut len: usize = 0;
         for stamp in &self.ads_stamp_headers {
-            len += stamp.len();
+            len += stamp.stamp_len();
         }
         //plus fixed byte size (length, stamps)
         len + 8
@@ -758,7 +758,7 @@ fn ads_notification_stream_write_to_test() {
 
     let mut len: usize = 0;
     for header in &stamp_headers {
-        len += header.len();
+        len += header.stamp_len();
     }
 
     let expected_len: usize = 62;
@@ -770,7 +770,7 @@ fn ads_notification_stream_write_to_test() {
 
     let expected_len: usize = 70;
     assert_eq!(
-        &ads_notification_stream.len(),
+        &ads_notification_stream.stream_len(),
         &expected_len,
         "Wrong number of bytes"
     );

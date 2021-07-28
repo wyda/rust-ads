@@ -42,7 +42,7 @@ impl From<AmsHeader> for AmsTcpHeader {
     fn from(ams_header: AmsHeader) -> Self {
         AmsTcpHeader {
             reserved: [0, 0],
-            length: ams_header.len(),
+            length: ams_header.header_len(),
             ams_header,
         }
     }
@@ -122,7 +122,7 @@ impl AmsHeader {
         }
     }
 
-    fn len(&self) -> u32 {
+    fn header_len(&self) -> u32 {
         self.data.len() as u32 + FIX_HEADER_LEN
     }
 }
@@ -218,7 +218,7 @@ mod tests {
             Request::Read(ReadRequest::new(259, 259, 4)),
         );
 
-        assert_eq!(ams_header.len(), 44);
+        assert_eq!(ams_header.header_len(), 44);
     }
 
     #[test]
