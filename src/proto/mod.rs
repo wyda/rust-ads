@@ -6,3 +6,4 @@ pub mod command_id;
 pub mod proto_traits;
 pub mod request;
 pub mod response;
+pub mod state_flags;

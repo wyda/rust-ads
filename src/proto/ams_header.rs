@@ -3,6 +3,7 @@ use crate::proto::ams_address::{AmsAddress, AmsNetId};
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
 use crate::proto::request::{ReadRequest, Request};
+use crate::proto::state_flags::{NetProto, StateFlags};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
@@ -29,14 +30,13 @@ impl ReadFrom for AmsTcpHeader {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         let reserved = read.read_u16::<LittleEndian>()?;
         let reserved = reserved.to_le_bytes();
-        Ok(AmsTcpHeader{
+        Ok(AmsTcpHeader {
             reserved,
             length: read.read_u32::<LittleEndian>()?,
             ams_header: AmsHeader::read_from(read)?,
         })
     }
 }
-
 
 impl From<AmsHeader> for AmsTcpHeader {
     fn from(ams_header: AmsHeader) -> Self {
@@ -52,7 +52,7 @@ struct AmsHeader {
     ams_address_targed: AmsAddress,
     ams_address_source: AmsAddress,
     command_id: CommandID,
-    state_flags: u16, //ToDo create enum or struct?
+    state_flags: StateFlags,
     length: u32,
     ads_error: AdsError,
     invoke_id: u32,
@@ -64,7 +64,7 @@ impl WriteTo for AmsHeader {
         self.ams_address_targed.write_to(&mut wtr);
         self.ams_address_source.write_to(&mut wtr);
         self.command_id.write_to(&mut wtr);
-        wtr.write_u16::<LittleEndian>(self.state_flags);
+        self.state_flags.write_to(&mut wtr);
         wtr.write_u32::<LittleEndian>(self.length);
         wtr.write_u32::<LittleEndian>(self.ads_error.as_u32());
         wtr.write_u32::<LittleEndian>(self.invoke_id);
@@ -78,7 +78,7 @@ impl ReadFrom for AmsHeader {
         let ams_address_targed = AmsAddress::read_from(read)?;
         let ams_address_source = AmsAddress::read_from(read)?;
         let command_id = CommandID::read_from(read)?;
-        let state_flags = read.read_u16::<LittleEndian>()?;
+        let state_flags = StateFlags::read_from(read)?;
         let length = read.read_u32::<LittleEndian>()?;
         let ads_error = AdsError::from(read.read_u32::<LittleEndian>()?);
         let invoke_id = read.read_u32::<LittleEndian>()?;
@@ -102,7 +102,7 @@ impl AmsHeader {
     pub fn new(
         ams_address_targed: AmsAddress,
         ams_address_source: AmsAddress,
-        //state_flags,
+        state_flags: StateFlags,
         invoke_id: u32,
         request: Request,
     ) -> Self {
@@ -113,8 +113,7 @@ impl AmsHeader {
             ams_address_targed,
             ams_address_source,
             command_id: request.command_id(),
-            //ToDo muss das dritte bit immer gesetzt sein? Only TCP support at the moment (UDP -> 0x0044).
-            state_flags: 0x0004,
+            state_flags,
             length: data.len() as u32,
             ads_error: AdsError::ErrNoError,
             invoke_id,
@@ -139,6 +138,7 @@ mod tests {
         let ams_header = AmsHeader::new(
             AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
+            StateFlags::resp_default(),
             111,
             Request::Read(ReadRequest::new(259, 259, 4)),
         );
@@ -154,7 +154,7 @@ mod tests {
             //CommandID -> Read 
             2, 0,                               
             //state flag -> Request, Ads command, TCP (4)
-            4, 0,                               
+            5, 0,                               
             //Lennth of data for read request (12 byte)
             12, 0, 0, 0,                        
             //Error code -> No error 
@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(ams_header.ams_address_targed.port, 30000);
         assert_eq!(ams_header.ams_address_source.port, 30000);
         assert_eq!(ams_header.command_id, CommandID::Read);
-        assert_eq!(ams_header.state_flags, 4);
+        assert_eq!(ams_header.state_flags.value(), 4);
         assert_eq!(ams_header.length, 12);
         assert_eq!(ams_header.ads_error, AdsError::ErrNoError);
         assert_eq!(ams_header.invoke_id, 111);
@@ -214,6 +214,7 @@ mod tests {
         let ams_header = AmsHeader::new(
             AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
+            StateFlags::req_default(),
             111,
             Request::Read(ReadRequest::new(259, 259, 4)),
         );
@@ -230,6 +231,7 @@ mod tests {
         let ams_header = AmsHeader::new(
             AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
+            StateFlags::req_default(),
             111,
             Request::Read(ReadRequest::new(259, 259, 4)),
         );
@@ -293,20 +295,31 @@ mod tests {
         assert_eq!(ams_tcp_header.reserved, [0, 0]);
         assert_eq!(ams_tcp_header.length, 44);
         assert_eq!(
-            ams_tcp_header.ams_header.ams_address_targed.ams_net_id.net_id(),
+            ams_tcp_header
+                .ams_header
+                .ams_address_targed
+                .ams_net_id
+                .net_id(),
             [192, 168, 1, 1, 1, 1]
         );
         assert_eq!(
-            ams_tcp_header.ams_header.ams_address_source.ams_net_id.net_id(),
+            ams_tcp_header
+                .ams_header
+                .ams_address_source
+                .ams_net_id
+                .net_id(),
             [192, 168, 1, 1, 1, 2]
         );
         assert_eq!(ams_tcp_header.ams_header.ams_address_targed.port, 30000);
         assert_eq!(ams_tcp_header.ams_header.ams_address_source.port, 30000);
         assert_eq!(ams_tcp_header.ams_header.command_id, CommandID::Read);
-        assert_eq!(ams_tcp_header.ams_header.state_flags, 4);
+        assert_eq!(ams_tcp_header.ams_header.state_flags.value(), 4);
         assert_eq!(ams_tcp_header.ams_header.length, 12);
         assert_eq!(ams_tcp_header.ams_header.ads_error, AdsError::ErrNoError);
         assert_eq!(ams_tcp_header.ams_header.invoke_id, 111);
-        assert_eq!(ams_tcp_header.ams_header.data, [3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0]);
+        assert_eq!(
+            ams_tcp_header.ams_header.data,
+            [3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0]
+        );
     }
 }
