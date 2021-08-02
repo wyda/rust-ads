@@ -1,7 +1,7 @@
 use crate::error::AmsAddressError;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{self, Error, Read, Write};
+use std::io::{self, Read, Write};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AmsAddress {
@@ -25,11 +25,8 @@ impl WriteTo for AmsAddress {
 
 impl ReadFrom for AmsAddress {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let mut buffer: [u8; 6] = [0; 6];
-        read.read_exact(&mut buffer);
-        Ok(AmsAddress {
-            //ToDo possibility to not convert first to vec and then back to slice?
-            ams_net_id: AmsNetId::read_from(&mut buffer.to_vec().as_slice())?,
+        Ok(AmsAddress {            
+            ams_net_id: AmsNetId::read_from(read)?,
             port: read.read_u16::<LittleEndian>()?,
         })
     }

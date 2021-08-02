@@ -1,6 +1,5 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use bytes::BufMut;
-use std::io::{self, Error, Read, Write};
+use std::io::{self, Read, Write};
 
 use crate::proto::ads_state::AdsState;
 use crate::proto::ads_transition_mode::AdsTransMode;

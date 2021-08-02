@@ -3,8 +3,7 @@ use crate::proto::ams_address::{AmsAddress, AmsNetId};
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
 use crate::proto::request::{ReadRequest, Request};
-use crate::proto::state_flags::{NetProto, StateFlags};
-
+use crate::proto::state_flags::StateFlags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
 

@@ -1,8 +1,8 @@
 use crate::error::AdsError;
 use crate::proto::ads_state::AdsState;
-use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
+use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{self, Error, Read, Write};
+use std::io::{self, Read, Write};
 
 #[derive(Debug)]
 pub enum Response {

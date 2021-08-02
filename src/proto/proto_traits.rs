@@ -1,6 +1,4 @@
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use bytes::BufMut;
-use std::io::{self, Error, Read, Write};
+use std::io::{self, Read, Write};
 
 pub trait ReadFrom: Sized {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self>;

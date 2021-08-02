@@ -1,8 +1,7 @@
-use crate::error::AmsAddressError;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{self, Error, Read, Write};
+use std::io::{self, Read, Write};
 
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, PartialEq)]
