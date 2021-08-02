@@ -259,7 +259,7 @@ impl WriteTo for WriteControlRequest {
 
 impl ReadFrom for WriteControlRequest {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let ads_state = AdsState::from(read.read_u16::<LittleEndian>()?);
+        let ads_state = AdsState::read_from(read)?;
         let device_state = read.read_u16::<LittleEndian>()?;
         let length = read.read_u32::<LittleEndian>()?;
         let mut data: Vec<u8> = Vec::with_capacity(length as usize);

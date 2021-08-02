@@ -1,6 +1,6 @@
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
-use byteorder::{LittleEndian, WriteBytesExt};
-use std::io::{self, Write};
+use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
+use std::io::{self, Write, Read};
 
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -56,6 +56,12 @@ impl WriteTo for AdsState {
     }
 }
 
+impl ReadFrom for AdsState {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        Ok(AdsState::from(read.read_u16::<LittleEndian>()?))
+    }
+}
+
 impl AdsState {
     pub fn as_u16(&self) -> u16 {
         *self as u16
@@ -65,6 +71,22 @@ impl AdsState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ads_state_write_to_test() {
+        let compare: [u8; 2] = [5, 0];
+        let mut buffer: Vec<u8> = Vec::new();
+        AdsState::AdsStateRun.write_to(&mut buffer);
+        assert_eq!(buffer, compare);
+    }
+
+    #[test]
+    fn ads_state_read_from_test() {
+        let data: Vec<u8> = vec![6, 0, 8, 4];
+        let trans_mode = AdsState::read_from(&mut data.as_slice()).unwrap();
+        assert_eq!(trans_mode, AdsState::AdsStateStop);
+    }
+
     #[test]
     fn ads_state_from_test() {
         assert_eq!(AdsState::from(0), AdsState::AdsStateInvalid);
