@@ -25,7 +25,7 @@ impl WriteTo for AmsAddress {
 
 impl ReadFrom for AmsAddress {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        Ok(AmsAddress {            
+        Ok(AmsAddress {
             ams_net_id: AmsNetId::read_from(read)?,
             port: read.read_u16::<LittleEndian>()?,
         })

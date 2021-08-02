@@ -1,6 +1,6 @@
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
-use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
-use std::io::{self, Write, Read};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{self, Read, Write};
 
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, PartialEq)]

@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn read_from_test() {
-        let mut buffer: Vec<u8> = vec![5,0,1,99];
+        let mut buffer: Vec<u8> = vec![5, 0, 1, 99];
         let state_flags = StateFlags::read_from(&mut buffer.as_slice()).unwrap();
 
         assert_eq!(state_flags.value(), 5);
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn is_tcp_test() {
-        let mut buffer: Vec<u8> = vec![5,0,1,99, 4];
+        let mut buffer: Vec<u8> = vec![5, 0, 1, 99, 4];
         let state_flags = StateFlags::read_from(&mut buffer.as_slice()).unwrap();
 
         assert_eq!(state_flags.is_tcp(), true);
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn is_udp_test() {
-        let mut buffer: Vec<u8> = vec![69,0,1,99, 4];
+        let mut buffer: Vec<u8> = vec![69, 0, 1, 99, 4];
         let state_flags = StateFlags::read_from(&mut buffer.as_slice()).unwrap();
 
         assert_eq!(state_flags.is_tcp(), false);
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn is_response_test() {
-        let mut buffer: Vec<u8> = vec![5,0,1,99, 4];
+        let mut buffer: Vec<u8> = vec![5, 0, 1, 99, 4];
         let state_flags = StateFlags::read_from(&mut buffer.as_slice()).unwrap();
 
         assert_eq!(state_flags.is_response(), true);
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn is_ads_command_test() {
-        let mut buffer: Vec<u8> = vec![4,0,1,99, 4];
+        let mut buffer: Vec<u8> = vec![4, 0, 1, 99, 4];
         let state_flags = StateFlags::read_from(&mut buffer.as_slice()).unwrap();
 
         assert_eq!(state_flags.is_ads_command(), true);
