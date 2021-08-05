@@ -37,6 +37,12 @@ impl ReadFrom for AmsTcpHeader {
     }
 }
 
+impl AmsTcpHeader {
+    pub fn command_id(&self) -> CommandID {
+        self.ams_header.command_id
+    }
+}
+
 impl From<AmsHeader> for AmsTcpHeader {
     fn from(ams_header: AmsHeader) -> Self {
         AmsTcpHeader {
