@@ -10,7 +10,7 @@ use std::io::{self, Read, Write};
 ///Length of the fix part of the AMS Header in bytes
 const FIX_HEADER_LEN: u32 = 32;
 
-struct AmsTcpHeader {
+pub struct AmsTcpHeader {
     reserved: [u8; 2],
     length: u32,
     ams_header: AmsHeader,
@@ -47,7 +47,7 @@ impl From<AmsHeader> for AmsTcpHeader {
     }
 }
 
-struct AmsHeader {
+pub struct AmsHeader {
     ams_address_targed: AmsAddress,
     ams_address_source: AmsAddress,
     command_id: CommandID,
