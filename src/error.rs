@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum AmsAddressError {
     #[error("Failed parsing address from &str")]
     ParseError { source: std::num::ParseIntError },
+    #[error("Split length wrong. Length is {}", length)]
+    SplitError { length: usize },
     #[error("Supplied address length {}! Expected a length of 6", length)]
     InvalidAddressLength { length: usize },
 }

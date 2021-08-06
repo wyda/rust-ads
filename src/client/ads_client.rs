@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::result;
@@ -42,7 +42,7 @@ impl Connection {
         Connection {
             route: ip,
             ams_targed_address,
-            ams_source_address: AmsAddress::new(AmsNetId::from([127, 0, 0, 1, 1, 1]), 0),
+            ams_source_address: AmsAddress::new(AmsNetId::from([0, 0, 0, 1, 1, 1]), 0),
             stream: None,
         }
     }
@@ -55,6 +55,11 @@ impl Connection {
 
         let socket_addr = SocketAddr::from((self.route, ADS_TCP_SERVER_PORT));
         self.stream = Some(TcpStream::connect(socket_addr)?);
+        if let Some(s) = &self.stream {
+            let ip = s.local_addr()?.ip();
+            self.ams_source_address
+                .from_socket_addr(s.local_addr()?.ip().to_string().as_str());
+        }
         Ok(())
     }
 
@@ -107,8 +112,9 @@ impl Connection {
     }
 
     fn stream_read(&mut self, mut buffer: &mut Vec<u8>) -> Result<usize> {
-        if let Some(s) = &mut self.stream {
-            return Ok(s.read(buffer)?);
+        if let Some(s) = &mut self.stream {           
+            let mut reader = BufReader::new(s);
+            return Ok(reader.read(&mut buffer)?);
         }
         Err(anyhow!(AdsError::ErrPortNotConnected))
     }
@@ -142,7 +148,6 @@ impl Connection {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,9 +156,9 @@ mod tests {
         let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
         let mut connection = Connection::new(None, ams_targed_address);
         connection.connect();
+        //let request = Request::ReadState(ReadStateRequest::default());
         let request = Request::ReadDeviceInfo(ReadDeviceInfoRequest::default());
         println!("{:?}", &connection.request(request, 1));
-        let response = connection.read_response().unwrap();
+        //let response = connection.read_response().unwrap();
     }
 }
-*/

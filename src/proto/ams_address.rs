@@ -13,6 +13,22 @@ impl AmsAddress {
     pub fn new(ams_net_id: AmsNetId, port: u16) -> Self {
         AmsAddress { ams_net_id, port }
     }
+
+    pub fn from_socket_addr(&mut self, socket_addr: &str) -> Result<(), AmsAddressError> {
+        let split_socket: Vec<&str> = socket_addr.split(':').collect();
+        if split_socket.len() != 2 {
+            return Err(AmsAddressError::SplitError {
+                length: split_socket.len(),
+            });
+        }
+        self.ams_net_id = AmsNetId::parse(split_socket[0])?;
+
+        match split_socket[1].parse::<u16>() {
+            Ok(p) => self.port = p,
+            Err(e) => return Err(AmsAddressError::ParseError { source: e }),
+        }
+        Ok(())
+    }
 }
 
 impl WriteTo for AmsAddress {
