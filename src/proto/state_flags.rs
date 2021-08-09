@@ -3,11 +3,13 @@ use bitfield::Bit;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
 
+#[derive(Debug)]
 pub enum NetProto {
     Tcp,
     Udp,
 }
 
+#[derive(Debug)]
 pub struct StateFlags {
     value: u16,
 }

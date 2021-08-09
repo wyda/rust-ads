@@ -2,7 +2,8 @@ use crate::error::AdsError;
 use crate::proto::ams_address::{AmsAddress, AmsNetId};
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
-use crate::proto::request::{ReadRequest, Request};
+use crate::proto::request::*;
+use crate::proto::response::*;
 use crate::proto::state_flags::StateFlags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
@@ -10,6 +11,7 @@ use std::io::{self, Read, Write};
 ///Length of the fix part of the AMS Header in bytes
 const FIX_HEADER_LEN: u32 = 32;
 
+#[derive(Debug)]
 pub struct AmsTcpHeader {
     reserved: [u8; 2],
     length: u32,
@@ -41,6 +43,10 @@ impl AmsTcpHeader {
     pub fn command_id(&self) -> CommandID {
         self.ams_header.command_id
     }
+
+    pub fn response(&mut self) -> io::Result<Response> {
+        self.ams_header.response()
+    }
 }
 
 impl From<AmsHeader> for AmsTcpHeader {
@@ -53,6 +59,7 @@ impl From<AmsHeader> for AmsTcpHeader {
     }
 }
 
+#[derive(Debug)]
 pub struct AmsHeader {
     ams_address_targed: AmsAddress,
     ams_address_source: AmsAddress,
@@ -123,6 +130,34 @@ impl AmsHeader {
             ads_error: AdsError::ErrNoError,
             invoke_id,
             data,
+        }
+    }
+
+    fn response(&mut self) -> io::Result<Response> {
+        match self.command_id {
+            CommandID::Invalid => Err(io::Error::new(io::ErrorKind::Other, AdsError::AdsErrDeviceInvalidData)),
+            CommandID::ReadDeviceInfo => Ok(Response::ReadDeviceInfo(
+                ReadDeviceInfoResponse::read_from(&mut self.data.as_slice())?,
+            )),
+            CommandID::Read => Ok(Response::Read(ReadResponse::read_from(&mut self.data.as_slice())?)),
+            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(&mut self.data.as_slice())?)),
+            CommandID::ReadState => Ok(Response::ReadState(ReadStateResponse::read_from(
+                &mut self.data.as_slice(),
+            )?)),
+            CommandID::WriteControl => Ok(Response::WriteControl(WriteControlResponse::read_from(
+                &mut self.data.as_slice(),
+            )?)),
+            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(&mut self.data.as_slice())?)),
+            CommandID::AddDeviceNotification => Ok(Response::AddDeviceNotification(
+                AddDeviceNotificationResponse::read_from(&mut self.data.as_slice())?,
+            )),
+            CommandID::DeleteDeviceNotification => Ok(Response::DeleteDeviceNotification(
+                DeleteDeviceNotificationResponse::read_from(&mut self.data.as_slice())?,
+            )),
+            CommandID::DeviceNotification => Ok(Response::DeviceNotification(
+                AdsNotificationStream::read_from(&mut self.data.as_slice())?,
+            )),
+            CommandID::ReadWrite => Ok(Response::ReadWrite(ReadResponse::read_from(&mut self.data.as_slice())?)),
         }
     }
 

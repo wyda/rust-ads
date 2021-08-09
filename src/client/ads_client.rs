@@ -23,7 +23,7 @@ pub const ADS_SECURE_TCP_SERVER_PORT: u16 = 8016;
 pub type Result<T> = result::Result<T, anyhow::Error>;
 
 pub struct Connection {
-    route: IpAddr,
+    route: Ipv4Addr,
     ams_targed_address: AmsAddress,
     ams_source_address: AmsAddress,
     stream: Option<TcpStream>,
@@ -31,18 +31,18 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(
-        route: Option<IpAddr>, //what else is needed to connect to a remote device?
+        route: Option<Ipv4Addr>, //what else is needed to connect to a remote device?
         ams_targed_address: AmsAddress,
     ) -> Self {
         let ip = match route {
             Some(r) => r,
-            None => IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            None => Ipv4Addr::new(127, 0, 0, 1),
         };
 
         Connection {
             route: ip,
             ams_targed_address,
-            ams_source_address: AmsAddress::new(AmsNetId::from([0, 0, 0, 1, 1, 1]), 0),
+            ams_source_address: AmsAddress::new(AmsNetId::from([0, 0, 0, 0, 0, 0]), 0),
             stream: None,
         }
     }
@@ -103,48 +103,18 @@ impl Connection {
         Err(anyhow!(AdsError::ErrPortNotConnected))
     }
 
-    pub fn read_response(&mut self) -> Result<Response> {
-        let mut buffer = Vec::new();
+    pub fn read_response(&mut self) -> Result<AmsTcpHeader> {
+        let mut buffer = vec![0; 38]; //AmsTcpHeader size without response data.....depend on expected response?! What if no response data? read_to_end?
         self.stream_read(&mut buffer)?;
-        let ams_tcp_header = AmsTcpHeader::read_from(&mut buffer.as_slice())?;
-        let command_id = ams_tcp_header.command_id();
-        self.get_response(ams_tcp_header.command_id(), &buffer)
+        Ok(AmsTcpHeader::read_from(&mut buffer.as_slice())?)    
     }
 
-    fn stream_read(&mut self, mut buffer: &mut Vec<u8>) -> Result<usize> {
+    fn stream_read(&mut self, mut buffer: &mut Vec<u8>) -> Result<()> {
         if let Some(s) = &mut self.stream {           
             let mut reader = BufReader::new(s);
-            return Ok(reader.read(&mut buffer)?);
+            return Ok(reader.read_exact(&mut buffer)?);
         }
         Err(anyhow!(AdsError::ErrPortNotConnected))
-    }
-
-    fn get_response(&self, command_id: CommandID, mut buffer: &[u8]) -> Result<Response> {
-        match command_id {
-            CommandID::Invalid => Err(anyhow!(AdsError::AdsErrDeviceInvalidData)),
-            CommandID::ReadDeviceInfo => Ok(Response::ReadDeviceInfo(
-                ReadDeviceInfoResponse::read_from(&mut buffer)?,
-            )),
-            CommandID::Read => Ok(Response::Read(ReadResponse::read_from(&mut buffer)?)),
-            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(&mut buffer)?)),
-            CommandID::ReadState => Ok(Response::ReadState(ReadStateResponse::read_from(
-                &mut buffer,
-            )?)),
-            CommandID::WriteControl => Ok(Response::WriteControl(WriteControlResponse::read_from(
-                &mut buffer,
-            )?)),
-            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(&mut buffer)?)),
-            CommandID::AddDeviceNotification => Ok(Response::AddDeviceNotification(
-                AddDeviceNotificationResponse::read_from(&mut buffer)?,
-            )),
-            CommandID::DeleteDeviceNotification => Ok(Response::DeleteDeviceNotification(
-                DeleteDeviceNotificationResponse::read_from(&mut buffer)?,
-            )),
-            CommandID::DeviceNotification => Ok(Response::DeviceNotification(
-                AdsNotificationStream::read_from(&mut buffer)?,
-            )),
-            CommandID::ReadWrite => Ok(Response::ReadWrite(ReadResponse::read_from(&mut buffer)?)),
-        }
     }
 }
 
@@ -153,12 +123,17 @@ mod tests {
     use super::*;
     #[test]
     fn connection_test() {
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
+        let ams_targed_address = AmsAddress::new(AmsNetId::from([127, 0, 0, 1, 1, 1]), 851);
+        //let route = Some(Ipv4Addr::new(192, 168, 0, 150));
+        //let mut connection = Connection::new(route, ams_targed_address);
         let mut connection = Connection::new(None, ams_targed_address);
         connection.connect();
-        //let request = Request::ReadState(ReadStateRequest::default());
-        let request = Request::ReadDeviceInfo(ReadDeviceInfoRequest::default());
-        println!("{:?}", &connection.request(request, 1));
-        //let response = connection.read_response().unwrap();
+        let request = Request::ReadState(ReadStateRequest::default());      
+        connection.request(request, 1);        
+        let mut ams_tcp_header = connection.read_response().unwrap();
+        let response_data = ams_tcp_header.response();
+
+        println!("{:?}", ams_tcp_header); //ErrPortDisabled !?
+        println!("{:?}", response_data);
     }
 }
