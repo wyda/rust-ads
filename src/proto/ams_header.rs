@@ -135,19 +135,28 @@ impl AmsHeader {
 
     fn response(&mut self) -> io::Result<Response> {
         match self.command_id {
-            CommandID::Invalid => Err(io::Error::new(io::ErrorKind::Other, AdsError::AdsErrDeviceInvalidData)),
+            CommandID::Invalid => Err(io::Error::new(
+                io::ErrorKind::Other,
+                AdsError::AdsErrDeviceInvalidData,
+            )),
             CommandID::ReadDeviceInfo => Ok(Response::ReadDeviceInfo(
                 ReadDeviceInfoResponse::read_from(&mut self.data.as_slice())?,
             )),
-            CommandID::Read => Ok(Response::Read(ReadResponse::read_from(&mut self.data.as_slice())?)),
-            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(&mut self.data.as_slice())?)),
+            CommandID::Read => Ok(Response::Read(ReadResponse::read_from(
+                &mut self.data.as_slice(),
+            )?)),
+            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(
+                &mut self.data.as_slice(),
+            )?)),
             CommandID::ReadState => Ok(Response::ReadState(ReadStateResponse::read_from(
                 &mut self.data.as_slice(),
             )?)),
             CommandID::WriteControl => Ok(Response::WriteControl(WriteControlResponse::read_from(
                 &mut self.data.as_slice(),
             )?)),
-            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(&mut self.data.as_slice())?)),
+            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(
+                &mut self.data.as_slice(),
+            )?)),
             CommandID::AddDeviceNotification => Ok(Response::AddDeviceNotification(
                 AddDeviceNotificationResponse::read_from(&mut self.data.as_slice())?,
             )),
@@ -157,7 +166,9 @@ impl AmsHeader {
             CommandID::DeviceNotification => Ok(Response::DeviceNotification(
                 AdsNotificationStream::read_from(&mut self.data.as_slice())?,
             )),
-            CommandID::ReadWrite => Ok(Response::ReadWrite(ReadResponse::read_from(&mut self.data.as_slice())?)),
+            CommandID::ReadWrite => Ok(Response::ReadWrite(ReadResponse::read_from(
+                &mut self.data.as_slice(),
+            )?)),
         }
     }
 

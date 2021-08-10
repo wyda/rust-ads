@@ -11,7 +11,7 @@ use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::*;
 use crate::proto::request::*;
 use crate::proto::response::*;
-use crate::proto::state_flags::StateFlags;
+use crate::proto::state_flags::*;
 
 /// UDO ADS-Protocol port dicovery
 pub const ADS_UDP_SERVER_PORT: u16 = 48899;
@@ -56,9 +56,8 @@ impl Connection {
         let socket_addr = SocketAddr::from((self.route, ADS_TCP_SERVER_PORT));
         self.stream = Some(TcpStream::connect(socket_addr)?);
         if let Some(s) = &self.stream {
-            let ip = s.local_addr()?.ip();
             self.ams_source_address
-                .from_socket_addr(s.local_addr()?.ip().to_string().as_str());
+                .update_from_socket_addr(s.local_addr()?.to_string().as_str());
         }
         Ok(())
     }
@@ -106,11 +105,11 @@ impl Connection {
     pub fn read_response(&mut self) -> Result<AmsTcpHeader> {
         let mut buffer = vec![0; 38]; //AmsTcpHeader size without response data.....depend on expected response?! What if no response data? read_to_end?
         self.stream_read(&mut buffer)?;
-        Ok(AmsTcpHeader::read_from(&mut buffer.as_slice())?)    
+        Ok(AmsTcpHeader::read_from(&mut buffer.as_slice())?)
     }
 
     fn stream_read(&mut self, mut buffer: &mut Vec<u8>) -> Result<()> {
-        if let Some(s) = &mut self.stream {           
+        if let Some(s) = &mut self.stream {
             let mut reader = BufReader::new(s);
             return Ok(reader.read_exact(&mut buffer)?);
         }
@@ -122,14 +121,15 @@ impl Connection {
 mod tests {
     use super::*;
     #[test]
-    fn connection_test() {
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([127, 0, 0, 1, 1, 1]), 851);
+    fn connection_test() {                
+        let ams_targed_address = AmsAddress::new(AmsNetId::from([10, 2, 129, 32, 1, 1]), 851);
         //let route = Some(Ipv4Addr::new(192, 168, 0, 150));
         //let mut connection = Connection::new(route, ams_targed_address);
         let mut connection = Connection::new(None, ams_targed_address);
         connection.connect();
-        let request = Request::ReadState(ReadStateRequest::default());      
-        connection.request(request, 1);        
+        let request = Request::Read(ReadRequest::new(16416, 0, 4));
+        //let request = Request::ReadDeviceInfo(ReadDeviceInfoRequest::default());
+        connection.request(request, 1);
         let mut ams_tcp_header = connection.read_response().unwrap();
         let response_data = ams_tcp_header.response();
 

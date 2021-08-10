@@ -14,13 +14,32 @@ impl AmsAddress {
         AmsAddress { ams_net_id, port }
     }
 
-    pub fn from_socket_addr(&mut self, socket_addr: &str) -> Result<(), AmsAddressError> {
+    pub fn from_socket_addr(socket_addr: &str) -> Result<AmsAddress, AmsAddressError> {
         let split_socket: Vec<&str> = socket_addr.split(':').collect();
         if split_socket.len() != 2 {
             return Err(AmsAddressError::SplitError {
                 length: split_socket.len(),
             });
         }
+
+        let ams_net_id = AmsNetId::parse(split_socket[0])?;
+        let port;
+
+        match split_socket[1].parse::<u16>() {
+            Ok(p) => port = p,
+            Err(e) => return Err(AmsAddressError::ParseError { source: e }),
+        }
+        Ok(AmsAddress::new(ams_net_id, port))
+    }
+
+    pub fn update_from_socket_addr(&mut self, socket_addr: &str) -> Result<(), AmsAddressError> {
+        let split_socket: Vec<&str> = socket_addr.split(':').collect();
+        if split_socket.len() != 2 {
+            return Err(AmsAddressError::SplitError {
+                length: split_socket.len(),
+            });
+        }
+
         self.ams_net_id = AmsNetId::parse(split_socket[0])?;
 
         match split_socket[1].parse::<u16>() {
@@ -84,12 +103,16 @@ impl AmsNetId {
 
     /// create a new AmsNetId from a str input
     pub fn parse(net_id: &str) -> Result<AmsNetId, AmsAddressError> {
-        let parts: Vec<&str> = net_id.split('.').collect();
-        if parts.len() != 6 {
+        let mut parts: Vec<&str> = net_id.split('.').collect();
+
+        if parts.len() == 4 {
+            parts.append(&mut vec!["1", "1"]);
+        } else if parts.len() != 6 {
             return Err(AmsAddressError::InvalidAddressLength {
                 length: parts.len(),
             });
         }
+
         let mut net_id = [0; 6];
         for (i, p) in parts.iter().enumerate() {
             match p.parse::<u8>() {
@@ -97,7 +120,6 @@ impl AmsNetId {
                 Err(e) => return Err(AmsAddressError::ParseError { source: e }),
             }
         }
-
         Ok(AmsNetId { net_id })
     }
 
@@ -179,5 +201,13 @@ mod tests {
         let ams_address = AmsAddress::read_from(&mut data.as_slice()).unwrap();
         assert_eq!(ams_address.ams_net_id.net_id, [192, 168, 1, 1, 1, 1]);
         assert_eq!(ams_address.port, 30000);
+    }
+
+    #[test]
+    fn ams_address_from_socket_address_test() {
+        let socket = "127.0.0.1:45032";
+        let mut ams_address = AmsAddress::from_socket_addr(socket).unwrap();
+        assert_eq!(ams_address.ams_net_id.net_id, [127, 0, 0, 1, 1, 1]);
+        assert_eq!(ams_address.port, 45032);
     }
 }
