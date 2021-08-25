@@ -1,4 +1,4 @@
-use crate::error::{AdsError, ResponseError};
+use crate::error::{AdsError, TryIntoError};
 use crate::proto::ads_state::AdsState;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
@@ -42,12 +42,12 @@ impl From<ReadDeviceInfoResponse> for Response {
 }
 
 impl TryInto<ReadDeviceInfoResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<ReadDeviceInfoResponse, Self::Error> {
         match self {
             Response::ReadDeviceInfo(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -59,12 +59,12 @@ impl From<WriteResponse> for Response {
 }
 
 impl TryInto<WriteResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<WriteResponse, Self::Error> {
         match self {
             Response::Write(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -76,12 +76,12 @@ impl From<WriteControlResponse> for Response {
 }
 
 impl TryInto<WriteControlResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<WriteControlResponse, Self::Error> {
         match self {
             Response::WriteControl(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -93,12 +93,12 @@ impl From<ReadStateResponse> for Response {
 }
 
 impl TryInto<ReadStateResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<ReadStateResponse, Self::Error> {
         match self {
             Response::ReadState(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -110,12 +110,12 @@ impl From<AddDeviceNotificationResponse> for Response {
 }
 
 impl TryInto<AddDeviceNotificationResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<AddDeviceNotificationResponse, Self::Error> {
         match self {
             Response::AddDeviceNotification(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -127,12 +127,12 @@ impl From<DeleteDeviceNotificationResponse> for Response {
 }
 
 impl TryInto<DeleteDeviceNotificationResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<DeleteDeviceNotificationResponse, Self::Error> {
         match self {
             Response::DeleteDeviceNotification(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -144,12 +144,12 @@ impl From<AdsNotificationStream> for Response {
 }
 
 impl TryInto<AdsNotificationStream> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<AdsNotificationStream, Self::Error> {
         match self {
             Response::DeviceNotification(r) => Ok(r),
-            _ => Err(ResponseError::TryIntoFailed),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -161,12 +161,12 @@ impl From<ReadResponse> for Response {
 }
 
 impl TryInto<ReadResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<ReadResponse, Self::Error> {
         match self {
-            Response::Read(r) => Ok(r),            
-            _ => Err(ResponseError::TryIntoFailed),
+            Response::Read(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
@@ -178,16 +178,15 @@ impl From<ReadWriteResponse> for Response {
 }
 
 impl TryInto<ReadWriteResponse> for Response {
-    type Error = ResponseError;
+    type Error = TryIntoError;
 
     fn try_into(self) -> Result<ReadWriteResponse, Self::Error> {
         match self {
-            Response::ReadWrite(r) => Ok(r),            
-            _ => Err(ResponseError::TryIntoFailed),
+            Response::ReadWrite(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
 }
-
 
 /// ADS Read Device Info
 #[derive(Debug, PartialEq, Clone)]
@@ -654,19 +653,12 @@ mod tests {
         let response = Response::ReadDeviceInfo(read_device_info_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            read_device_info_response,
-            test
-        );
+        assert_eq!(read_device_info_response, test);
     }
 
     #[test]
     fn response_from_read() {
-        let read_response =
-            ReadResponse::new(
-                AdsError::ErrNoError,
-                vec![66]
-            );
+        let read_response = ReadResponse::new(AdsError::ErrNoError, vec![66]);
 
         assert_eq!(
             Response::Read(read_response.clone()),
@@ -676,27 +668,17 @@ mod tests {
 
     #[test]
     fn response_try_into_read() {
-        let read_response =
-            ReadResponse::new(
-                AdsError::ErrNoError,
-                vec![66]
-            );
+        let read_response = ReadResponse::new(AdsError::ErrNoError, vec![66]);
 
         let response = Response::Read(read_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            read_response,
-            test
-        );
+        assert_eq!(read_response, test);
     }
 
     #[test]
     fn response_from_write() {
-        let write_response =
-            WriteResponse::new(
-                AdsError::ErrNoError,                
-            );
+        let write_response = WriteResponse::new(AdsError::ErrNoError);
 
         assert_eq!(
             Response::Write(write_response.clone()),
@@ -706,28 +688,18 @@ mod tests {
 
     #[test]
     fn response_try_into_write() {
-        let write_response =
-            WriteResponse::new(
-                AdsError::ErrNoError                
-            );
+        let write_response = WriteResponse::new(AdsError::ErrNoError);
 
         let response = Response::Write(write_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            write_response,
-            test
-        );
+        assert_eq!(write_response, test);
     }
 
     #[test]
     fn response_from_read_state() {
         let read_state_response =
-            ReadStateResponse::new(
-                AdsError::ErrNoError,       
-                AdsState::AdsStateConfig,
-                123         
-            );
+            ReadStateResponse::new(AdsError::ErrNoError, AdsState::AdsStateConfig, 123);
 
         assert_eq!(
             Response::ReadState(read_state_response.clone()),
@@ -738,27 +710,17 @@ mod tests {
     #[test]
     fn response_try_into_read_state() {
         let read_state_response =
-            ReadStateResponse::new(
-                AdsError::ErrNoError,       
-                AdsState::AdsStateConfig,
-                123         
-            );
+            ReadStateResponse::new(AdsError::ErrNoError, AdsState::AdsStateConfig, 123);
 
         let response = Response::ReadState(read_state_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            read_state_response,
-            test
-        );
+        assert_eq!(read_state_response, test);
     }
 
     #[test]
     fn response_from_write_control() {
-        let write_control_response =
-            WriteControlResponse::new(
-                AdsError::ErrNoError,                      
-            );
+        let write_control_response = WriteControlResponse::new(AdsError::ErrNoError);
 
         assert_eq!(
             Response::WriteControl(write_control_response.clone()),
@@ -768,27 +730,18 @@ mod tests {
 
     #[test]
     fn response_try_into_write_control() {
-        let write_control_response =
-            WriteControlResponse::new(
-                AdsError::ErrNoError,                      
-            );
+        let write_control_response = WriteControlResponse::new(AdsError::ErrNoError);
 
         let response = Response::WriteControl(write_control_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            write_control_response,
-            test
-        );
+        assert_eq!(write_control_response, test);
     }
 
     #[test]
     fn response_from_add_device_notification() {
         let add_device_notification_response =
-            AddDeviceNotificationResponse::new(
-                AdsError::ErrNoError,   
-                1                   
-            );
+            AddDeviceNotificationResponse::new(AdsError::ErrNoError, 1);
 
         assert_eq!(
             Response::AddDeviceNotification(add_device_notification_response.clone()),
@@ -799,26 +752,18 @@ mod tests {
     #[test]
     fn response_try_into_add_device_notification() {
         let add_device_notification_response =
-            AddDeviceNotificationResponse::new(
-                AdsError::ErrNoError,   
-                1                   
-            );
+            AddDeviceNotificationResponse::new(AdsError::ErrNoError, 1);
 
         let response = Response::AddDeviceNotification(add_device_notification_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            add_device_notification_response,
-            test
-        );
+        assert_eq!(add_device_notification_response, test);
     }
 
     #[test]
     fn response_from_delete_device_notification() {
         let delete_device_notification_response =
-            DeleteDeviceNotificationResponse::new(
-                AdsError::ErrNoError,                               
-            );
+            DeleteDeviceNotificationResponse::new(AdsError::ErrNoError);
 
         assert_eq!(
             Response::DeleteDeviceNotification(delete_device_notification_response.clone()),
@@ -829,17 +774,13 @@ mod tests {
     #[test]
     fn response_try_into_delete_device_notification() {
         let delete_device_notification_response =
-            DeleteDeviceNotificationResponse::new(
-                AdsError::ErrNoError,                            
-            );
+            DeleteDeviceNotificationResponse::new(AdsError::ErrNoError);
 
-        let response = Response::DeleteDeviceNotification(delete_device_notification_response.clone());
+        let response =
+            Response::DeleteDeviceNotification(delete_device_notification_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            delete_device_notification_response,
-            test
-        );
+        assert_eq!(delete_device_notification_response, test);
     }
 
     #[test]
@@ -883,19 +824,12 @@ mod tests {
         let response = Response::DeviceNotification(device_notification_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            device_notification_response,
-            test
-        );
+        assert_eq!(device_notification_response, test);
     }
 
     #[test]
     fn response_from_read_write() {
-        let read_write_response =
-            ReadWriteResponse::new(
-                AdsError::ErrNoError,     
-                vec![66]                          
-            );
+        let read_write_response = ReadWriteResponse::new(AdsError::ErrNoError, vec![66]);
 
         assert_eq!(
             Response::ReadWrite(read_write_response.clone()),
@@ -905,19 +839,12 @@ mod tests {
 
     #[test]
     fn response_try_into_read_write() {
-        let read_write_response =
-            ReadWriteResponse::new(
-                AdsError::ErrNoError,     
-                vec![66]                          
-            );
+        let read_write_response = ReadWriteResponse::new(AdsError::ErrNoError, vec![66]);
 
         let response = Response::ReadWrite(read_write_response.clone());
         let test = response.try_into().unwrap();
 
-        assert_eq!(
-            read_write_response,
-            test
-        );
+        assert_eq!(read_write_response, test);
     }
 
     #[test]
@@ -1267,31 +1194,31 @@ fn ads_notification_stream_write_to_test() {
         //Notification stream Length
         62, 0, 0, 0,
         ////Notification stream number of stamps
-        2, 0, 0, 0, 
+        2, 0, 0, 0,
         //Stamp header1 time_stamp
-        210, 2, 150, 73, 0, 0, 0, 0, 
+        210, 2, 150, 73, 0, 0, 0, 0,
         //Stamp header1 number of samples
-        2, 0, 0, 0, 
+        2, 0, 0, 0,
         //Notification sample 1 notification handle
-        10, 0, 0, 0, 
+        10, 0, 0, 0,
         //Notification sample 1 sample size
         4, 0, 0, 0,
         //Notification sample 1 data
-        232, 3, 0, 0, 
+        232, 3, 0, 0,
         //Notification sample 2 notification handle
-        20, 0, 0, 0, 
+        20, 0, 0, 0,
         //Notification sample 2 sample size
-        2, 0, 0, 0, 
+        2, 0, 0, 0,
         //Notification sample 2 data
-        208, 7, 
+        208, 7,
         //Stamp header2 time_stamp
-        210, 2, 150, 73, 0, 0, 0, 0, 
+        210, 2, 150, 73, 0, 0, 0, 0,
         //Stamp header2 number of samples
-        1, 0, 0, 0, 
+        1, 0, 0, 0,
         //Notification sample 3 notification handle
         30, 0, 0, 0,
         //Notification sample 3 sample size
-        8, 0, 0, 0, 
+        8, 0, 0, 0,
         //Notification sample 3 data
         184, 11, 0, 0, 0, 0, 0, 0,
     ];

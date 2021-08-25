@@ -2,9 +2,11 @@ use crate::proto::response;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Clone)]
-pub enum ResponseError {
-    #[error("try_into failed. self is wrong response type!")]
-    TryIntoFailed,
+pub enum TryIntoError {
+    #[error("try_into failed. self is wrong response!")]
+    TryIntoResponseFailed,
+    #[error("try_into failed. self is wrong request!")]
+    TryIntoRequestFailed,
 }
 
 #[derive(Error, Debug, PartialEq, Clone)]
