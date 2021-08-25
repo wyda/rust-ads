@@ -9,7 +9,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
 
 ///Length of the fix part of the AMS Header in bytes
-const FIX_HEADER_LEN: u32 = 32;
+const FIX_AMS_HEADER_LEN: u32 = 32;
 
 #[derive(Debug)]
 pub struct AmsTcpHeader {
@@ -46,6 +46,14 @@ impl AmsTcpHeader {
 
     pub fn response(&mut self) -> io::Result<Response> {
         self.ams_header.response()
+    }
+
+    pub fn response_data_len(&self) -> u32 {
+        self.ams_header.length
+    }
+    
+    pub fn update_response_data(&mut self, buf: Vec<u8>) {
+        self.ams_header.update_data(buf);
     }
 }
 
@@ -169,11 +177,19 @@ impl AmsHeader {
             CommandID::ReadWrite => Ok(Response::ReadWrite(ReadResponse::read_from(
                 &mut self.data.as_slice(),
             )?)),
-        }
-    }
+        }        
+    }    
 
     fn header_len(&self) -> u32 {
-        self.data.len() as u32 + FIX_HEADER_LEN
+        self.data.len() as u32 + FIX_AMS_HEADER_LEN
+    }
+
+    pub fn data_len(&self) -> u32 {
+        self.length
+    }    
+
+    pub fn update_data(&mut self, buf: Vec<u8>) {
+        self.data = buf;
     }
 }
 

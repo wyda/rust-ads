@@ -13,12 +13,14 @@ use crate::proto::request::*;
 use crate::proto::response::*;
 use crate::proto::state_flags::*;
 
-/// UDO ADS-Protocol port dicovery
+/// UDP ADS-Protocol port dicovery
 pub const ADS_UDP_SERVER_PORT: u16 = 48899;
 /// TCP ADS-Protocol port not secured
 pub const ADS_TCP_SERVER_PORT: u16 = 48898;
 /// ADS-Protocol port secured
 pub const ADS_SECURE_TCP_SERVER_PORT: u16 = 8016;
+//Tcp Header size without response data
+pub const AMS_HEADER_SIZE: usize = 38;
 
 pub type Result<T> = result::Result<T, anyhow::Error>;
 
@@ -48,8 +50,7 @@ impl Connection {
     }
 
     pub fn connect(&mut self) -> Result<()> {
-        if self.is_connected() {
-            //Create separeate client error?
+        if self.is_connected() {           
             return Err(anyhow!(AdsError::ErrPortAlreadyConnected));
         }
 
@@ -103,14 +104,22 @@ impl Connection {
     }
 
     pub fn read_response(&mut self) -> Result<AmsTcpHeader> {
-        let mut buffer = vec![0; 38]; //AmsTcpHeader size without response data.....depend on expected response?! What if no response data? read_to_end?
-        self.stream_read(&mut buffer)?;
-        Ok(AmsTcpHeader::read_from(&mut buffer.as_slice())?)
+        let mut buf = vec![0; AMS_HEADER_SIZE];
+        self.stream_read(&mut buf)?;        
+        let mut ams_tcp_header = AmsTcpHeader::read_from(&mut buf.as_slice())?;
+
+        if ams_tcp_header.response_data_len() > 0 {        
+            let mut buf = vec![0; ams_tcp_header.response_data_len() as usize];
+            self.stream_read(&mut buf)?; 
+            ams_tcp_header.update_response_data(buf);
+            return Ok(ams_tcp_header)    
+        }        
+        Ok(ams_tcp_header)
     }
 
     fn stream_read(&mut self, mut buffer: &mut Vec<u8>) -> Result<()> {
-        if let Some(s) = &mut self.stream {
-            let mut reader = BufReader::new(s);
+        if let Some(s) = &mut self.stream {               
+            let mut reader = BufReader::new(s);    
             return Ok(reader.read_exact(&mut buffer)?);
         }
         Err(anyhow!(AdsError::ErrPortNotConnected))
@@ -122,18 +131,20 @@ mod tests {
     use super::*;
     #[test]
     fn connection_test() {                
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([10, 2, 129, 32, 1, 1]), 851);
+        let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
         //let route = Some(Ipv4Addr::new(192, 168, 0, 150));
-        //let mut connection = Connection::new(route, ams_targed_address);
-        let mut connection = Connection::new(None, ams_targed_address);
+        //let mut connection = Connection::new(route, ams_targed_address);        
+        let mut connection = Connection::new(None, ams_targed_address);        
         connection.connect();
-        let request = Request::Read(ReadRequest::new(16416, 0, 4));
-        //let request = Request::ReadDeviceInfo(ReadDeviceInfoRequest::default());
+        //let request = Request::Read(ReadRequest::new(16416, 0, 4));
+        let request = Request::ReadDeviceInfo(ReadDeviceInfoRequest::default());
         connection.request(request, 1);
         let mut ams_tcp_header = connection.read_response().unwrap();
         let response_data = ams_tcp_header.response();
 
-        println!("{:?}", ams_tcp_header); //ErrPortDisabled !?
+        println!("{:?}", ams_tcp_header); //ErrPortDisabled if loop back.
         println!("{:?}", response_data);
+
+        //println!("{:?}", response_data.unwrap());
     }
 }
