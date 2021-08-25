@@ -174,7 +174,7 @@ impl AmsHeader {
             CommandID::DeviceNotification => Ok(Response::DeviceNotification(
                 AdsNotificationStream::read_from(&mut self.data.as_slice())?,
             )),
-            CommandID::ReadWrite => Ok(Response::ReadWrite(ReadResponse::read_from(
+            CommandID::ReadWrite => Ok(Response::ReadWrite(ReadWriteResponse::read_from(
                 &mut self.data.as_slice(),
             )?)),
         }        

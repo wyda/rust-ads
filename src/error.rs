@@ -1,4 +1,13 @@
+use crate::proto::response;
 use thiserror::Error;
+
+#[derive(Error, Debug, PartialEq, Clone)]
+pub enum TryIntoError {
+    #[error("try_into failed. self is wrong response!")]
+    TryIntoResponseFailed,
+    #[error("try_into failed. self is wrong request!")]
+    TryIntoRequestFailed,
+}
 
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum AmsAddressError {

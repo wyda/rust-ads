@@ -1,10 +1,12 @@
-use crate::error::AdsError;
+use crate::error::{AdsError, TryIntoError};
 use crate::proto::ads_state::AdsState;
+use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::convert::TryInto;
 use std::io::{self, Read, Write};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Response {
     ReadDeviceInfo(ReadDeviceInfoResponse),
     Read(ReadResponse),
@@ -14,7 +16,7 @@ pub enum Response {
     AddDeviceNotification(AddDeviceNotificationResponse),
     DeleteDeviceNotification(DeleteDeviceNotificationResponse),
     DeviceNotification(AdsNotificationStream),
-    ReadWrite(ReadResponse),
+    ReadWrite(ReadWriteResponse),
 }
 
 impl WriteTo for Response {
@@ -33,14 +35,167 @@ impl WriteTo for Response {
     }
 }
 
+impl From<ReadDeviceInfoResponse> for Response {
+    fn from(response: ReadDeviceInfoResponse) -> Self {
+        Response::ReadDeviceInfo(response)
+    }
+}
+
+impl TryInto<ReadDeviceInfoResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadDeviceInfoResponse, Self::Error> {
+        match self {
+            Response::ReadDeviceInfo(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<WriteResponse> for Response {
+    fn from(response: WriteResponse) -> Self {
+        Response::Write(response)
+    }
+}
+
+impl TryInto<WriteResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<WriteResponse, Self::Error> {
+        match self {
+            Response::Write(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<WriteControlResponse> for Response {
+    fn from(response: WriteControlResponse) -> Self {
+        Response::WriteControl(response)
+    }
+}
+
+impl TryInto<WriteControlResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<WriteControlResponse, Self::Error> {
+        match self {
+            Response::WriteControl(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<ReadStateResponse> for Response {
+    fn from(response: ReadStateResponse) -> Self {
+        Response::ReadState(response)
+    }
+}
+
+impl TryInto<ReadStateResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadStateResponse, Self::Error> {
+        match self {
+            Response::ReadState(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<AddDeviceNotificationResponse> for Response {
+    fn from(response: AddDeviceNotificationResponse) -> Self {
+        Response::AddDeviceNotification(response)
+    }
+}
+
+impl TryInto<AddDeviceNotificationResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<AddDeviceNotificationResponse, Self::Error> {
+        match self {
+            Response::AddDeviceNotification(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<DeleteDeviceNotificationResponse> for Response {
+    fn from(response: DeleteDeviceNotificationResponse) -> Self {
+        Response::DeleteDeviceNotification(response)
+    }
+}
+
+impl TryInto<DeleteDeviceNotificationResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<DeleteDeviceNotificationResponse, Self::Error> {
+        match self {
+            Response::DeleteDeviceNotification(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<AdsNotificationStream> for Response {
+    fn from(response: AdsNotificationStream) -> Self {
+        Response::DeviceNotification(response)
+    }
+}
+
+impl TryInto<AdsNotificationStream> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<AdsNotificationStream, Self::Error> {
+        match self {
+            Response::DeviceNotification(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<ReadResponse> for Response {
+    fn from(response: ReadResponse) -> Self {
+        Response::Read(response)
+    }
+}
+
+impl TryInto<ReadResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadResponse, Self::Error> {
+        match self {
+            Response::Read(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
+impl From<ReadWriteResponse> for Response {
+    fn from(response: ReadWriteResponse) -> Self {
+        Response::ReadWrite(response)
+    }
+}
+
+impl TryInto<ReadWriteResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadWriteResponse, Self::Error> {
+        match self {
+            Response::ReadWrite(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
 /// ADS Read Device Info
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadDeviceInfoResponse {
-    result: AdsError,
-    major_version: u8,
-    minor_version: u8,
-    version_build: u16,
-    device_name: [u8; 16],
+    pub result: AdsError,
+    pub major_version: u8,
+    pub minor_version: u8,
+    pub version_build: u16,
+    pub device_name: [u8; 16],
 }
 
 impl ReadFrom for ReadDeviceInfoResponse {
@@ -93,7 +248,7 @@ impl ReadDeviceInfoResponse {
 ///Ads Write
 #[derive(Debug, PartialEq, Clone)]
 pub struct WriteResponse {
-    result: AdsError,
+    pub result: AdsError,
 }
 
 impl ReadFrom for WriteResponse {
@@ -119,9 +274,9 @@ impl WriteResponse {
 /// ADS Read State
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadStateResponse {
-    result: AdsError,
-    ads_state: AdsState,
-    device_state: u16,
+    pub result: AdsError,
+    pub ads_state: AdsState,
+    pub device_state: u16,
 }
 
 impl ReadFrom for ReadStateResponse {
@@ -156,7 +311,7 @@ impl ReadStateResponse {
 ///Write control
 #[derive(Debug, PartialEq, Clone)]
 pub struct WriteControlResponse {
-    result: AdsError,
+    pub result: AdsError,
 }
 
 impl ReadFrom for WriteControlResponse {
@@ -183,9 +338,10 @@ impl WriteControlResponse {
 /// ADS Add Device Notification
 #[derive(Debug, PartialEq, Clone)]
 pub struct AddDeviceNotificationResponse {
-    result: AdsError,
-    notification_handle: u32,
+    pub result: AdsError,
+    pub notification_handle: u32,
 }
+
 impl ReadFrom for AddDeviceNotificationResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         Ok(Self {
@@ -215,8 +371,9 @@ impl AddDeviceNotificationResponse {
 /// ADS Delete Device Notification
 #[derive(Debug, PartialEq, Clone)]
 pub struct DeleteDeviceNotificationResponse {
-    result: AdsError,
+    pub result: AdsError,
 }
+
 impl ReadFrom for DeleteDeviceNotificationResponse {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         Ok(Self {
@@ -241,9 +398,9 @@ impl DeleteDeviceNotificationResponse {
 //ADS Device Notification Response
 #[derive(Debug, PartialEq, Clone)]
 pub struct AdsNotificationSample {
-    notification_handle: u32,
-    sample_size: u32,
-    data: Vec<u8>,
+    pub notification_handle: u32,
+    pub sample_size: u32,
+    pub data: Vec<u8>,
 }
 
 impl AdsNotificationSample {
@@ -262,9 +419,9 @@ impl AdsNotificationSample {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct AdsStampHeader {
-    time_stamp: u64,
-    samples: u32,
-    notification_samples: Vec<AdsNotificationSample>,
+    pub time_stamp: u64,
+    pub samples: u32,
+    pub notification_samples: Vec<AdsNotificationSample>,
 }
 
 impl ReadFrom for AdsStampHeader {
@@ -333,9 +490,9 @@ impl AdsStampHeader {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct AdsNotificationStream {
-    length: u32,
-    stamps: u32,
-    ads_stamp_headers: Vec<AdsStampHeader>,
+    pub length: u32,
+    pub stamps: u32,
+    pub ads_stamp_headers: Vec<AdsStampHeader>,
 }
 
 impl ReadFrom for AdsNotificationStream {
@@ -391,12 +548,12 @@ impl AdsNotificationStream {
     }
 }
 
-//Asd Read response
-#[derive(Debug)]
+//Ads Read response
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReadResponse {
-    result: AdsError,
-    length: u32,
-    data: Vec<u8>,
+    pub result: AdsError,
+    pub length: u32,
+    pub data: Vec<u8>,
 }
 
 impl ReadFrom for ReadResponse {
@@ -432,10 +589,263 @@ impl ReadResponse {
     }
 }
 
+//Ads Read response
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReadWriteResponse {
+    pub result: AdsError,
+    pub length: u32,
+    pub data: Vec<u8>,
+}
+
+impl ReadFrom for ReadWriteResponse {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let result = AdsError::from(read.read_u32::<LittleEndian>()?);
+        let length = read.read_u32::<LittleEndian>()?;
+        let mut data = Vec::with_capacity(length as usize);
+        read.read_to_end(&mut data)?;
+        Ok(Self {
+            result,
+            length,
+            data,
+        })
+    }
+}
+
+impl WriteTo for ReadWriteResponse {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
+        wtr.write_u32::<LittleEndian>(self.length)?;
+        wtr.write_all(self.data.as_slice());
+        Ok(())
+    }
+}
+
+impl ReadWriteResponse {
+    pub fn new(result: AdsError, data: Vec<u8>) -> Self {
+        ReadWriteResponse {
+            result,
+            length: data.len() as u32,
+            data,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryInto;
+
+    #[test]
+    fn response_from_read_device_info() {
+        let read_device_info_response =
+            ReadDeviceInfoResponse::new(AdsError::ErrNoError, 1, 2, 33, [1; 16]);
+
+        assert_eq!(
+            Response::ReadDeviceInfo(read_device_info_response.clone()),
+            Response::from(read_device_info_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_read_device_info() {
+        let read_device_info_response =
+            ReadDeviceInfoResponse::new(AdsError::ErrNoError, 1, 2, 33, [1; 16]);
+
+        let response = Response::ReadDeviceInfo(read_device_info_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(read_device_info_response, test);
+    }
+
+    #[test]
+    fn response_from_read() {
+        let read_response = ReadResponse::new(AdsError::ErrNoError, vec![66]);
+
+        assert_eq!(
+            Response::Read(read_response.clone()),
+            Response::from(read_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_read() {
+        let read_response = ReadResponse::new(AdsError::ErrNoError, vec![66]);
+
+        let response = Response::Read(read_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(read_response, test);
+    }
+
+    #[test]
+    fn response_from_write() {
+        let write_response = WriteResponse::new(AdsError::ErrNoError);
+
+        assert_eq!(
+            Response::Write(write_response.clone()),
+            Response::from(write_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_write() {
+        let write_response = WriteResponse::new(AdsError::ErrNoError);
+
+        let response = Response::Write(write_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(write_response, test);
+    }
+
+    #[test]
+    fn response_from_read_state() {
+        let read_state_response =
+            ReadStateResponse::new(AdsError::ErrNoError, AdsState::AdsStateConfig, 123);
+
+        assert_eq!(
+            Response::ReadState(read_state_response.clone()),
+            Response::from(read_state_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_read_state() {
+        let read_state_response =
+            ReadStateResponse::new(AdsError::ErrNoError, AdsState::AdsStateConfig, 123);
+
+        let response = Response::ReadState(read_state_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(read_state_response, test);
+    }
+
+    #[test]
+    fn response_from_write_control() {
+        let write_control_response = WriteControlResponse::new(AdsError::ErrNoError);
+
+        assert_eq!(
+            Response::WriteControl(write_control_response.clone()),
+            Response::from(write_control_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_write_control() {
+        let write_control_response = WriteControlResponse::new(AdsError::ErrNoError);
+
+        let response = Response::WriteControl(write_control_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(write_control_response, test);
+    }
+
+    #[test]
+    fn response_from_add_device_notification() {
+        let add_device_notification_response =
+            AddDeviceNotificationResponse::new(AdsError::ErrNoError, 1);
+
+        assert_eq!(
+            Response::AddDeviceNotification(add_device_notification_response.clone()),
+            Response::from(add_device_notification_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_add_device_notification() {
+        let add_device_notification_response =
+            AddDeviceNotificationResponse::new(AdsError::ErrNoError, 1);
+
+        let response = Response::AddDeviceNotification(add_device_notification_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(add_device_notification_response, test);
+    }
+
+    #[test]
+    fn response_from_delete_device_notification() {
+        let delete_device_notification_response =
+            DeleteDeviceNotificationResponse::new(AdsError::ErrNoError);
+
+        assert_eq!(
+            Response::DeleteDeviceNotification(delete_device_notification_response.clone()),
+            Response::from(delete_device_notification_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_delete_device_notification() {
+        let delete_device_notification_response =
+            DeleteDeviceNotificationResponse::new(AdsError::ErrNoError);
+
+        let response =
+            Response::DeleteDeviceNotification(delete_device_notification_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(delete_device_notification_response, test);
+    }
+
+    #[test]
+    fn response_from_device_notification() {
+        let mut notification_sample1: Vec<u8> = vec![4, 0, 0, 0, 2, 0, 0, 0, 6, 0];
+        let mut notification_sample2: Vec<u8> = vec![4, 0, 0, 0, 4, 0, 0, 0, 9, 0, 0, 0];
+
+        let mut stamp_header: Vec<u8> = vec![255, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0];
+        stamp_header.extend(notification_sample1);
+        stamp_header.extend(notification_sample2);
+
+        let mut notification_stream: Vec<u8> = vec![68, 0, 0, 0, 2, 0, 0, 0];
+        notification_stream.extend(stamp_header.clone());
+        notification_stream.extend(stamp_header);
+
+        let device_notification_response =
+            AdsNotificationStream::read_from(&mut notification_stream.as_slice()).unwrap();
+
+        assert_eq!(
+            Response::DeviceNotification(device_notification_response.clone()),
+            Response::from(device_notification_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_device_notification() {
+        let mut notification_sample1: Vec<u8> = vec![4, 0, 0, 0, 2, 0, 0, 0, 6, 0];
+        let mut notification_sample2: Vec<u8> = vec![4, 0, 0, 0, 4, 0, 0, 0, 9, 0, 0, 0];
+
+        let mut stamp_header: Vec<u8> = vec![255, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0];
+        stamp_header.extend(notification_sample1);
+        stamp_header.extend(notification_sample2);
+
+        let mut notification_stream: Vec<u8> = vec![68, 0, 0, 0, 2, 0, 0, 0];
+        notification_stream.extend(stamp_header.clone());
+        notification_stream.extend(stamp_header);
+
+        let device_notification_response =
+            AdsNotificationStream::read_from(&mut notification_stream.as_slice()).unwrap();
+
+        let response = Response::DeviceNotification(device_notification_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(device_notification_response, test);
+    }
+
+    #[test]
+    fn response_from_read_write() {
+        let read_write_response = ReadWriteResponse::new(AdsError::ErrNoError, vec![66]);
+
+        assert_eq!(
+            Response::ReadWrite(read_write_response.clone()),
+            Response::from(read_write_response)
+        );
+    }
+
+    #[test]
+    fn response_try_into_read_write() {
+        let read_write_response = ReadWriteResponse::new(AdsError::ErrNoError, vec![66]);
+
+        let response = Response::ReadWrite(read_write_response.clone());
+        let test = response.try_into().unwrap();
+
+        assert_eq!(read_write_response, test);
+    }
 
     #[test]
     fn read_device_info_response_write_to_test() {
@@ -784,31 +1194,31 @@ fn ads_notification_stream_write_to_test() {
         //Notification stream Length
         62, 0, 0, 0,
         ////Notification stream number of stamps
-        2, 0, 0, 0, 
+        2, 0, 0, 0,
         //Stamp header1 time_stamp
-        210, 2, 150, 73, 0, 0, 0, 0, 
+        210, 2, 150, 73, 0, 0, 0, 0,
         //Stamp header1 number of samples
-        2, 0, 0, 0, 
+        2, 0, 0, 0,
         //Notification sample 1 notification handle
-        10, 0, 0, 0, 
+        10, 0, 0, 0,
         //Notification sample 1 sample size
         4, 0, 0, 0,
         //Notification sample 1 data
-        232, 3, 0, 0, 
+        232, 3, 0, 0,
         //Notification sample 2 notification handle
-        20, 0, 0, 0, 
+        20, 0, 0, 0,
         //Notification sample 2 sample size
-        2, 0, 0, 0, 
+        2, 0, 0, 0,
         //Notification sample 2 data
-        208, 7, 
+        208, 7,
         //Stamp header2 time_stamp
-        210, 2, 150, 73, 0, 0, 0, 0, 
+        210, 2, 150, 73, 0, 0, 0, 0,
         //Stamp header2 number of samples
-        1, 0, 0, 0, 
+        1, 0, 0, 0,
         //Notification sample 3 notification handle
         30, 0, 0, 0,
         //Notification sample 3 sample size
-        8, 0, 0, 0, 
+        8, 0, 0, 0,
         //Notification sample 3 data
         184, 11, 0, 0, 0, 0, 0, 0,
     ];

@@ -1,12 +1,14 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
 
+use crate::error::TryIntoError;
 use crate::proto::ads_state::AdsState;
 use crate::proto::ads_transition_mode::AdsTransMode;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
+use std::convert::TryInto;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Request {
     Invalid(InvalidRequest),
     ReadDeviceInfo(ReadDeviceInfoRequest),
@@ -54,8 +56,178 @@ impl Request {
     }
 }
 
+impl From<InvalidRequest> for Request {
+    fn from(request: InvalidRequest) -> Self {
+        Request::Invalid(request)
+    }
+}
+
+impl TryInto<InvalidRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<InvalidRequest, Self::Error> {
+        match self {
+            Request::Invalid(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<ReadDeviceInfoRequest> for Request {
+    fn from(request: ReadDeviceInfoRequest) -> Self {
+        Request::ReadDeviceInfo(request)
+    }
+}
+
+impl TryInto<ReadDeviceInfoRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadDeviceInfoRequest, Self::Error> {
+        match self {
+            Request::ReadDeviceInfo(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<ReadStateRequest> for Request {
+    fn from(request: ReadStateRequest) -> Self {
+        Request::ReadState(request)
+    }
+}
+
+impl TryInto<ReadStateRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadStateRequest, Self::Error> {
+        match self {
+            Request::ReadState(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<ReadRequest> for Request {
+    fn from(request: ReadRequest) -> Self {
+        Request::Read(request)
+    }
+}
+
+impl TryInto<ReadRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadRequest, Self::Error> {
+        match self {
+            Request::Read(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<WriteRequest> for Request {
+    fn from(request: WriteRequest) -> Self {
+        Request::Write(request)
+    }
+}
+
+impl TryInto<WriteRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<WriteRequest, Self::Error> {
+        match self {
+            Request::Write(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<WriteControlRequest> for Request {
+    fn from(request: WriteControlRequest) -> Self {
+        Request::WriteControl(request)
+    }
+}
+
+impl TryInto<WriteControlRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<WriteControlRequest, Self::Error> {
+        match self {
+            Request::WriteControl(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<AddDeviceNotificationRequest> for Request {
+    fn from(request: AddDeviceNotificationRequest) -> Self {
+        Request::AddDeviceNotification(request)
+    }
+}
+
+impl TryInto<AddDeviceNotificationRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<AddDeviceNotificationRequest, Self::Error> {
+        match self {
+            Request::AddDeviceNotification(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<DeleteDeviceNotificationRequest> for Request {
+    fn from(request: DeleteDeviceNotificationRequest) -> Self {
+        Request::DeleteDeviceNotification(request)
+    }
+}
+
+impl TryInto<DeleteDeviceNotificationRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<DeleteDeviceNotificationRequest, Self::Error> {
+        match self {
+            Request::DeleteDeviceNotification(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<DeviceNotificationRequest> for Request {
+    fn from(request: DeviceNotificationRequest) -> Self {
+        Request::DeviceNotification(request)
+    }
+}
+
+impl TryInto<DeviceNotificationRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<DeviceNotificationRequest, Self::Error> {
+        match self {
+            Request::DeviceNotification(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
+impl From<ReadWriteRequest> for Request {
+    fn from(request: ReadWriteRequest) -> Self {
+        Request::ReadWrite(request)
+    }
+}
+
+impl TryInto<ReadWriteRequest> for Request {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<ReadWriteRequest, Self::Error> {
+        match self {
+            Request::ReadWrite(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoRequestFailed),
+        }
+    }
+}
+
 /// ADS Invalid request
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InvalidRequest {
     command_id: CommandID,
 }
@@ -75,7 +247,7 @@ impl Default for InvalidRequest {
 }
 
 /// ADS read device info request
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReadDeviceInfoRequest {
     command_id: CommandID,
 }
@@ -95,7 +267,7 @@ impl Default for ReadDeviceInfoRequest {
 }
 
 /// ADS read device info request
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReadStateRequest {
     command_id: CommandID,
 }
@@ -115,7 +287,7 @@ impl Default for ReadStateRequest {
 }
 
 /// ADS read device info request
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeviceNotificationRequest {
     command_id: CommandID,
 }
@@ -135,7 +307,7 @@ impl Default for DeviceNotificationRequest {
 }
 
 /// ADS Read
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReadRequest {
     index_group: u32,
     index_offset: u32,
@@ -175,7 +347,7 @@ impl ReadFrom for ReadRequest {
 }
 
 ///ADS Write
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WriteRequest {
     index_group: u32,
     index_offset: u32,
@@ -225,7 +397,7 @@ impl ReadFrom for WriteRequest {
 }
 
 /// ADS Write Control
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WriteControlRequest {
     ads_state: AdsState,
     device_state: u16,
@@ -337,7 +509,7 @@ impl ReadFrom for AddDeviceNotificationRequest {
 }
 
 /// ADS read device info request
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeleteDeviceNotificationRequest {
     handle: u32,
     command_id: CommandID,
@@ -369,7 +541,7 @@ impl DeleteDeviceNotificationRequest {
 }
 
 /// ADS Read Write
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReadWriteRequest {
     index_group: u32,
     index_offset: u32,
@@ -432,6 +604,209 @@ impl ReadFrom for ReadWriteRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_from_invalid() {
+        let invalid_request = InvalidRequest::new();
+
+        assert_eq!(
+            Request::Invalid(invalid_request.clone()),
+            Request::from(invalid_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_invalid() {
+        let invalid_request = InvalidRequest::new();
+
+        let request = Request::Invalid(invalid_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(invalid_request, test);
+    }
+
+    #[test]
+    fn request_from_read_device_info() {
+        let read_device_info_request = ReadDeviceInfoRequest::new();
+
+        assert_eq!(
+            Request::ReadDeviceInfo(read_device_info_request.clone()),
+            Request::from(read_device_info_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_read_device_info() {
+        let read_device_info_request = ReadDeviceInfoRequest::new();
+
+        let request = Request::ReadDeviceInfo(read_device_info_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(read_device_info_request, test);
+    }
+
+    #[test]
+    fn request_from_read_state() {
+        let read_state_request = ReadStateRequest::new();
+
+        assert_eq!(
+            Request::ReadState(read_state_request.clone()),
+            Request::from(read_state_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_read_state() {
+        let read_state_request = ReadStateRequest::new();
+
+        let request = Request::ReadState(read_state_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(read_state_request, test);
+    }
+
+    #[test]
+    fn request_from_read() {
+        let read_request = ReadRequest::new(1, 1, 1);
+
+        assert_eq!(
+            Request::Read(read_request.clone()),
+            Request::from(read_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_read() {
+        let read_request = ReadRequest::new(1, 1, 1);
+
+        let request = Request::Read(read_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(read_request, test);
+    }
+
+    #[test]
+    fn request_from_write() {
+        let write_request = WriteRequest::new(1, 1, 1, vec![88]);
+
+        assert_eq!(
+            Request::Write(write_request.clone()),
+            Request::from(write_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_write() {
+        let write_request = WriteRequest::new(1, 1, 1, vec![88]);
+        let request = Request::Write(write_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(write_request, test);
+    }
+
+    #[test]
+    fn request_from_write_control() {
+        let write_control_request =
+            WriteControlRequest::new(AdsState::AdsStateConfig, 1, 1, vec![88]);
+
+        assert_eq!(
+            Request::WriteControl(write_control_request.clone()),
+            Request::from(write_control_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_write_control() {
+        let write_control_request =
+            WriteControlRequest::new(AdsState::AdsStateConfig, 1, 1, vec![88]);
+        let request = Request::WriteControl(write_control_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(write_control_request, test);
+    }
+
+    #[test]
+    fn request_from_add_device_notification() {
+        let add_device_notification_request =
+            AddDeviceNotificationRequest::new(1, 1, 1, AdsTransMode::Cyclic, 1, 1);
+
+        assert_eq!(
+            Request::AddDeviceNotification(add_device_notification_request.clone()),
+            Request::from(add_device_notification_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_add_device_notification() {
+        let add_device_notification_request =
+            AddDeviceNotificationRequest::new(1, 1, 1, AdsTransMode::Cyclic, 1, 1);
+
+        let request = Request::AddDeviceNotification(add_device_notification_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(add_device_notification_request, test);
+    }
+
+    #[test]
+    fn request_from_delete_device_notification() {
+        let delete_device_notification_request = DeleteDeviceNotificationRequest::new(1);
+
+        assert_eq!(
+            Request::DeleteDeviceNotification(delete_device_notification_request.clone()),
+            Request::from(delete_device_notification_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_delete_device_notification() {
+        let delete_device_notification_request = DeleteDeviceNotificationRequest::new(1);
+
+        let request = Request::DeleteDeviceNotification(delete_device_notification_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(delete_device_notification_request, test);
+    }
+
+    #[test]
+    fn request_from_device_notification() {
+        let device_notification_request = DeviceNotificationRequest::new();
+
+        assert_eq!(
+            Request::DeviceNotification(device_notification_request.clone()),
+            Request::from(device_notification_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_device_notification() {
+        let device_notification_request = DeviceNotificationRequest::new();
+
+        let request = Request::DeviceNotification(device_notification_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(device_notification_request, test);
+    }
+
+    #[test]
+    fn request_from_read_write() {
+        let read_write_request = ReadWriteRequest::new(1, 1, 1, 1, vec![85]);
+
+        assert_eq!(
+            Request::ReadWrite(read_write_request.clone()),
+            Request::from(read_write_request)
+        );
+    }
+
+    #[test]
+    fn request_try_into_read_write() {
+        let read_write_request = ReadWriteRequest::new(1, 1, 1, 1, vec![85]);
+
+        let request = Request::ReadWrite(read_write_request.clone());
+        let test = request.try_into().unwrap();
+
+        assert_eq!(read_write_request, test);
+    }
+
     #[test]
     fn read_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
