@@ -13,6 +13,8 @@ use crate::proto::request::*;
 use crate::proto::response::*;
 use crate::proto::state_flags::*;
 
+use std::convert::TryInto;
+
 /// UDO ADS-Protocol port dicovery
 pub const ADS_UDP_SERVER_PORT: u16 = 48899;
 /// TCP ADS-Protocol port not secured
@@ -121,7 +123,7 @@ impl Connection {
 mod tests {
     use super::*;
     #[test]
-    fn connection_test() {                
+    fn connection_test() {
         let ams_targed_address = AmsAddress::new(AmsNetId::from([10, 2, 129, 32, 1, 1]), 851);
         //let route = Some(Ipv4Addr::new(192, 168, 0, 150));
         //let mut connection = Connection::new(route, ams_targed_address);
@@ -131,9 +133,36 @@ mod tests {
         //let request = Request::ReadDeviceInfo(ReadDeviceInfoRequest::default());
         connection.request(request, 1);
         let mut ams_tcp_header = connection.read_response().unwrap();
-        let response_data = ams_tcp_header.response();
+        let response_data = ams_tcp_header.response().unwrap();
 
-        println!("{:?}", ams_tcp_header); //ErrPortDisabled !?
-        println!("{:?}", response_data);
+        let read_response: ReadResponse;
+        let read_device_info_response: ReadDeviceInfoResponse;
+        let read_state_response: ReadStateResponse;
+        let write_response: WriteResponse;
+        let write_control_response: WriteControlResponse;
+        let add_device_notification_response: AddDeviceNotificationResponse;
+        let delete_device_notification_response: DeleteDeviceNotificationResponse;
+        let notification_response: AdsNotificationStream;
+
+        match ams_tcp_header.command_id() {
+            CommandID::Read => read_response = response_data.try_into().unwrap(),
+            CommandID::ReadDeviceInfo => {
+                read_device_info_response = response_data.try_into().unwrap()
+            }
+            CommandID::ReadState => read_state_response = response_data.try_into().unwrap(),
+            CommandID::ReadWrite => read_response = response_data.try_into().unwrap(),
+            CommandID::Write => write_response = response_data.try_into().unwrap(),
+            CommandID::WriteControl => write_control_response = response_data.try_into().unwrap(),
+            CommandID::AddDeviceNotification => {
+                add_device_notification_response = response_data.try_into().unwrap()
+            }
+            CommandID::DeleteDeviceNotification => {
+                delete_device_notification_response = response_data.try_into().unwrap()
+            }
+            CommandID::DeviceNotification => {
+                notification_response = response_data.try_into().unwrap()
+            }
+            CommandID::Invalid => (),
+        }
     }
 }
