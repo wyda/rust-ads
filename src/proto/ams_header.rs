@@ -51,9 +51,17 @@ impl AmsTcpHeader {
     pub fn response_data_len(&self) -> u32 {
         self.ams_header.length
     }
-    
+
     pub fn update_response_data(&mut self, buf: Vec<u8>) {
         self.ams_header.update_data(buf);
+    }
+
+    pub fn invoke_id(&self) -> u32 {
+        self.ams_header.invoke_id
+    }
+
+    pub fn ads_error(&self) -> &AdsError {
+        &self.ams_header.ads_error
     }
 }
 
@@ -177,8 +185,8 @@ impl AmsHeader {
             CommandID::ReadWrite => Ok(Response::ReadWrite(ReadWriteResponse::read_from(
                 &mut self.data.as_slice(),
             )?)),
-        }        
-    }    
+        }
+    }
 
     fn header_len(&self) -> u32 {
         self.data.len() as u32 + FIX_AMS_HEADER_LEN
@@ -186,7 +194,7 @@ impl AmsHeader {
 
     pub fn data_len(&self) -> u32 {
         self.length
-    }    
+    }
 
     pub fn update_data(&mut self, buf: Vec<u8>) {
         self.data = buf;
