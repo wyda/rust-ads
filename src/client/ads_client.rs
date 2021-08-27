@@ -175,7 +175,6 @@ impl<'a> Connection<'a> {
                 handle.handle,
                 1,
             ));
-
             self.request(request, invoke_id)?;
             let response: ReadResponse = self.read_response()?.response()?.try_into()?;
             Ok(response.data)
