@@ -110,8 +110,8 @@ impl ReadFrom for AmsHeader {
         let length = read.read_u32::<LittleEndian>()?;
         let ads_error = AdsError::from(read.read_u32::<LittleEndian>()?);
         let invoke_id = read.read_u32::<LittleEndian>()?;
-        let mut data: Vec<u8> = Vec::new();
-        read.read_to_end(&mut data);
+        let mut data: Vec<u8> = vec![0; length as usize];
+        read.read_exact(&mut data);
 
         Ok(AmsHeader {
             ams_address_targed,
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(ams_header.ams_address_source.port, 30000);
         assert_eq!(ams_header.command_id, CommandID::Read);
         assert_eq!(ams_header.state_flags.value(), 4);
-        assert_eq!(ams_header.length, 12);
+        assert_eq!(ams_header.length, 12, "Wrong data length");
         assert_eq!(ams_header.ads_error, AdsError::ErrNoError);
         assert_eq!(ams_header.invoke_id, 111);
         assert_eq!(ams_header.data, [3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0]);

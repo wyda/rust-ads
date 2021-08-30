@@ -589,7 +589,7 @@ impl ReadResponse {
     }
 }
 
-//Ads Read response
+//Ads ReadWrite response
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReadWriteResponse {
     pub result: AdsError,

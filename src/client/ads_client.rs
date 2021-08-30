@@ -39,10 +39,7 @@ pub struct Connection<'a> {
 }
 
 impl<'a> Connection<'a> {
-    pub fn new(
-        route: Option<Ipv4Addr>, //what else is needed to connect to a remote device?
-        ams_targed_address: AmsAddress,
-    ) -> Self {
+    pub fn new(route: Option<Ipv4Addr>, ams_targed_address: AmsAddress) -> Self {
         let ip = match route {
             Some(r) => r,
             None => Ipv4Addr::new(127, 0, 0, 1),
@@ -103,7 +100,7 @@ impl<'a> Connection<'a> {
         ams_tcp_header.write_to(&mut buffer);
     }
 
-    fn stream_write(&mut self, mut buffer: &mut Vec<u8>) -> Result<usize> {
+    fn stream_write(&mut self, mut buffer: &mut [u8]) -> Result<usize> {
         if let Some(s) = &mut self.stream {
             return Ok(s.write(buffer)?);
         }
@@ -112,35 +109,37 @@ impl<'a> Connection<'a> {
 
     pub fn read_response(&mut self) -> Result<AmsTcpHeader> {
         let mut buf = vec![0; AMS_HEADER_SIZE];
-        self.stream_read(&mut buf)?;
+        let mut reader = self.get_reader()?;
+        let response = reader.read_exact(&mut buf)?;
         let mut ams_tcp_header = AmsTcpHeader::read_from(&mut buf.as_slice())?;
 
         if ams_tcp_header.ads_error() != &AdsError::ErrNoError {
             if ams_tcp_header.ads_error() == &AdsError::AdsErrDeviceNotifyHndInvalid {
+                //ToDo notify that the handles are no longer valid => Request new handles.
                 self.sym_handle.clear();
             }
-            //return Err(anyhow!(ams_tcp_header.ads_error()))
+            return Err(anyhow!(ams_tcp_header.ads_error().clone()));
         }
 
         if ams_tcp_header.response_data_len() > 0 {
             let mut buf = vec![0; ams_tcp_header.response_data_len() as usize];
-            self.stream_read(&mut buf)?;
+            reader.read_exact(&mut buf)?;
             ams_tcp_header.update_response_data(buf);
             return Ok(ams_tcp_header);
         }
         Ok(ams_tcp_header)
     }
 
-    fn stream_read(&mut self, mut buffer: &mut Vec<u8>) -> Result<()> {
+    fn get_reader(&mut self) -> Result<BufReader<&mut TcpStream>> {
         if let Some(s) = &mut self.stream {
-            let mut reader = BufReader::new(s);
-            return Ok(reader.read_exact(&mut buffer)?);
+            Ok(BufReader::new(s))
+        } else {
+            Err(anyhow!(AdsError::ErrPortNotConnected))
         }
-        Err(anyhow!(AdsError::ErrPortNotConnected))
     }
 
     //trial
-    pub fn get_symhandle(&mut self, var: Var<'a>) -> Result<u32> {
+    pub fn get_symhandle(&mut self, var: &Var<'a>) -> Result<u32> {
         if self.sym_handle.contains_key(var.name) {
             if let Some(handle) = self.sym_handle.get(var.name) {
                 return Ok(handle.handle);
@@ -150,30 +149,32 @@ impl<'a> Connection<'a> {
         let request = Request::ReadWrite(ReadWriteRequest::new(
             GET_SYMHANDLE_BY_NAME.index_group,
             GET_SYMHANDLE_BY_NAME.index_offset_start,
-            var.name.len() as u32,
             4, //allways u32 for get_symhandle
+            var.name.len() as u32,
             var.name.as_bytes().to_vec(),
         ));
 
         self.request(request, 0)?;
-        let mut response: ReadResponse = self.read_response()?.response()?.try_into()?;
+        let mut response = self.read_response()?;
+        let mut response: ReadWriteResponse = response.response()?.try_into()?;
+        //ToDo check if a valid handle was received => AdsErrDeviceSymbolNotFound
         let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
-        let handle = SymHandle::new(raw_handle, var.plc_type);
+        let handle = SymHandle::new(raw_handle, var.plc_type.clone());
         self.sym_handle.insert(var.name, handle);
         Ok(raw_handle)
     }
 
     //trial
-    pub fn read_by_name(&mut self, var: Var<'a>, invoke_id: u32) -> Result<Vec<u8>> {
+    pub fn read_by_name(&mut self, var: &Var<'a>, invoke_id: u32) -> Result<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var.clone())?;
+            self.get_symhandle(var)?;
         }
 
-        if let Some(handle) = self.sym_handle.get(&var.name) {
+        if let Some(handle) = self.sym_handle.get(var.name) {
             let request = Request::Read(ReadRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
                 handle.handle,
-                1,
+                var.plc_type.size() as u32,
             ));
             self.request(request, invoke_id)?;
             let response: ReadResponse = self.read_response()?.response()?.try_into()?;
@@ -189,19 +190,28 @@ mod tests {
     use super::*;
     #[test]
     fn connection_test() {
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([10, 2, 129, 32, 1, 1]), 851);
+        //connect to remote
+        let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
         let route = Some(Ipv4Addr::new(192, 168, 0, 150));
         let mut connection = Connection::new(route, ams_targed_address);
         connection.connect().unwrap();
 
-        let var = Var::new("test", PlcTypes::Bool);
-        let handle = connection.get_symhandle(var.clone());
+        //get a var handle
+        let var = Var::new("MAIN.counter", PlcTypes::LReal);
+        let handle = connection.get_symhandle(&var).unwrap();
         println!("handle :{:?}", handle);
         println!("handle list : {:?}", connection.sym_handle.values());
 
-        let data = connection.read_by_name(var, 1234).unwrap(); //read by type and retrun accordingly?
-        println!("read result : {:?}", data);
-        let value = data.as_slice().read_u8().unwrap() != 0; //Improve!
-        println!("read result : {:?}", value);
+        //read the value of the var by with requested handle
+        let mut results = Vec::new();
+        for n in 0..1000 {
+            let data = connection.read_by_name(&var, 1234).unwrap();
+            let value = data.as_slice().read_u32::<LittleEndian>().unwrap();
+            results.push(value);
+        }
+
+        for (n, r) in results.iter().enumerate() {
+            println!("{:?} : {:?}", n, r);
+        }
     }
 }
