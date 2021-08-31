@@ -1,7 +1,7 @@
 use crate::error::AdsError;
-use crate::proto::ams_address::{AmsAddress, AmsNetId};
+use crate::proto::ams_address::AmsAddress;
 use crate::proto::command_id::CommandID;
-use crate::proto::proto_traits::{ReadFrom, SendRecieve, WriteTo};
+use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use crate::proto::request::*;
 use crate::proto::response::*;
 use crate::proto::state_flags::StateFlags;
@@ -20,17 +20,16 @@ pub struct AmsTcpHeader {
 
 impl WriteTo for AmsTcpHeader {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_all(&self.reserved);
-        wtr.write_u32::<LittleEndian>(self.length);
-        self.ams_header.write_to(&mut wtr);
+        wtr.write_all(&self.reserved)?;
+        wtr.write_u32::<LittleEndian>(self.length)?;
+        self.ams_header.write_to(&mut wtr)?;
         Ok(())
     }
 }
 
 impl ReadFrom for AmsTcpHeader {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let reserved = read.read_u16::<LittleEndian>()?;
-        let reserved = reserved.to_le_bytes();
+        let reserved = read.read_u16::<LittleEndian>()?.to_le_bytes();
         Ok(AmsTcpHeader {
             reserved,
             length: read.read_u32::<LittleEndian>()?,
@@ -89,14 +88,14 @@ pub struct AmsHeader {
 
 impl WriteTo for AmsHeader {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        self.ams_address_targed.write_to(&mut wtr);
-        self.ams_address_source.write_to(&mut wtr);
-        self.command_id.write_to(&mut wtr);
-        self.state_flags.write_to(&mut wtr);
-        wtr.write_u32::<LittleEndian>(self.length);
-        wtr.write_u32::<LittleEndian>(self.ads_error.as_u32());
-        wtr.write_u32::<LittleEndian>(self.invoke_id);
-        wtr.write_all(&self.data);
+        self.ams_address_targed.write_to(&mut wtr)?;
+        self.ams_address_source.write_to(&mut wtr)?;
+        self.command_id.write_to(&mut wtr)?;
+        self.state_flags.write_to(&mut wtr)?;
+        wtr.write_u32::<LittleEndian>(self.length)?;
+        wtr.write_u32::<LittleEndian>(self.ads_error.as_u32())?;
+        wtr.write_u32::<LittleEndian>(self.invoke_id)?;
+        wtr.write_all(&self.data)?;
         Ok(())
     }
 }
@@ -111,7 +110,7 @@ impl ReadFrom for AmsHeader {
         let ads_error = AdsError::from(read.read_u32::<LittleEndian>()?);
         let invoke_id = read.read_u32::<LittleEndian>()?;
         let mut data: Vec<u8> = vec![0; length as usize];
-        read.read_exact(&mut data);
+        read.read_exact(&mut data); //Todo fails silently at the moment if not the complete AmsHeader was read from the stream (read to check data length)
 
         Ok(AmsHeader {
             ams_address_targed,
@@ -170,9 +169,6 @@ impl AmsHeader {
             CommandID::WriteControl => Ok(Response::WriteControl(WriteControlResponse::read_from(
                 &mut self.data.as_slice(),
             )?)),
-            CommandID::Write => Ok(Response::Write(WriteResponse::read_from(
-                &mut self.data.as_slice(),
-            )?)),
             CommandID::AddDeviceNotification => Ok(Response::AddDeviceNotification(
                 AddDeviceNotificationResponse::read_from(&mut self.data.as_slice())?,
             )),
@@ -204,6 +200,7 @@ impl AmsHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proto::ams_address::*;
     #[test]
     fn ams_header_write_to_test() {
         let mut buffer: Vec<u8> = Vec::new();

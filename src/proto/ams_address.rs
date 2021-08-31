@@ -52,7 +52,7 @@ impl AmsAddress {
 
 impl WriteTo for AmsAddress {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        self.ams_net_id.write_to(&mut wtr);
+        self.ams_net_id.write_to(&mut wtr)?;
         wtr.write_u16::<LittleEndian>(self.port)?;
         Ok(())
     }
@@ -82,7 +82,7 @@ impl WriteTo for AmsNetId {
 impl ReadFrom for AmsNetId {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         let mut buffer: [u8; 6] = [0; 6];
-        read.read_exact(&mut buffer);
+        read.read_exact(&mut buffer)?;
         Ok(AmsNetId::from(buffer))
     }
 }

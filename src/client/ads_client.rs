@@ -1,17 +1,16 @@
-use anyhow::{anyhow, Error};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use anyhow::anyhow;
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::net::TcpStream;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::result;
 
 use crate::ads_services::system_services::*;
-use crate::client::plc_types::{PlcTypes, SymHandle, Var};
+use crate::client::plc_types::{SymHandle, Var};
 use crate::error::AdsError;
 use crate::proto::ams_address::{AmsAddress, AmsNetId};
 use crate::proto::ams_header::*;
-use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::*;
 use crate::proto::request::*;
 use crate::proto::response::*;
@@ -63,7 +62,7 @@ impl<'a> Connection<'a> {
         self.stream = Some(TcpStream::connect(socket_addr)?);
         if let Some(s) = &self.stream {
             self.ams_source_address
-                .update_from_socket_addr(s.local_addr()?.to_string().as_str());
+                .update_from_socket_addr(s.local_addr()?.to_string().as_str())?;
         }
         Ok(())
     }
@@ -78,7 +77,7 @@ impl<'a> Connection<'a> {
 
     pub fn request(&mut self, request: Request, invoke_id: u32) -> Result<usize> {
         let mut buffer = Vec::new();
-        self.create_payload(request, StateFlags::req_default(), invoke_id, &mut buffer);
+        self.create_payload(request, StateFlags::req_default(), invoke_id, &mut buffer)?;
         self.stream_write(&mut buffer)
     }
 
@@ -88,7 +87,7 @@ impl<'a> Connection<'a> {
         state_flag: StateFlags,
         invoke_id: u32,
         mut buffer: &mut Vec<u8>,
-    ) {
+    ) -> Result<()> {
         let ams_header = AmsHeader::new(
             self.ams_targed_address.clone(),
             self.ams_source_address.clone(),
@@ -97,10 +96,11 @@ impl<'a> Connection<'a> {
             request,
         );
         let ams_tcp_header = AmsTcpHeader::from(ams_header);
-        ams_tcp_header.write_to(&mut buffer);
+        ams_tcp_header.write_to(&mut buffer)?;
+        Ok(())
     }
 
-    fn stream_write(&mut self, mut buffer: &mut [u8]) -> Result<usize> {
+    fn stream_write(&mut self, buffer: &mut [u8]) -> Result<usize> {
         if let Some(s) = &mut self.stream {
             return Ok(s.write(buffer)?);
         }
@@ -110,7 +110,7 @@ impl<'a> Connection<'a> {
     pub fn read_response(&mut self) -> Result<AmsTcpHeader> {
         let mut buf = vec![0; AMS_HEADER_SIZE];
         let mut reader = self.get_reader()?;
-        let response = reader.read_exact(&mut buf)?;
+        reader.read_exact(&mut buf)?;
         let mut ams_tcp_header = AmsTcpHeader::read_from(&mut buf.as_slice())?;
 
         if ams_tcp_header.ads_error() != &AdsError::ErrNoError {
@@ -156,7 +156,7 @@ impl<'a> Connection<'a> {
 
         self.request(request, 0)?;
         let mut response = self.read_response()?;
-        let mut response: ReadWriteResponse = response.response()?.try_into()?;
+        let response: ReadWriteResponse = response.response()?.try_into()?;
         //ToDo check if a valid handle was received => AdsErrDeviceSymbolNotFound
         let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         let handle = SymHandle::new(raw_handle, var.plc_type.clone());
@@ -188,6 +188,8 @@ impl<'a> Connection<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::plc_types::PlcTypes;
+    use crate::proto::ams_address::*;
     #[test]
     fn connection_test() {
         //connect to remote
@@ -204,14 +206,17 @@ mod tests {
 
         //read the value of the var by with requested handle
         let mut results = Vec::new();
-        for n in 0..1000 {
+        for _ in 0..1000 {
             let data = connection.read_by_name(&var, 1234).unwrap();
             let value = data.as_slice().read_u32::<LittleEndian>().unwrap();
             results.push(value);
         }
 
+        let start = results[0];
+        let end = results.last().unwrap();
         for (n, r) in results.iter().enumerate() {
             println!("{:?} : {:?}", n, r);
         }
+        println!("result {:?}", end - start);
     }
 }

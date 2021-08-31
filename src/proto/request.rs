@@ -23,7 +23,7 @@ pub enum Request {
 }
 
 impl WriteTo for Request {
-    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+    fn write_to<W: Write>(&self, wtr: W) -> io::Result<()> {
         match self {
             Request::Invalid(_) => Ok(()),
             Request::ReadDeviceInfo(_) => Ok(()),
@@ -330,7 +330,7 @@ impl WriteTo for ReadRequest {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         wtr.write_u32::<LittleEndian>(self.index_group)?;
         wtr.write_u32::<LittleEndian>(self.index_offset)?;
-        wtr.write_u32::<LittleEndian>(self.length);
+        wtr.write_u32::<LittleEndian>(self.length)?;
         Ok(())
     }
 }
@@ -384,7 +384,7 @@ impl ReadFrom for WriteRequest {
         let index_offset = read.read_u32::<LittleEndian>()?;
         let length = read.read_u32::<LittleEndian>()?;
         let mut data: Vec<u8> = Vec::with_capacity(length as usize);
-        read.read_to_end(&mut data);
+        read.read_to_end(&mut data)?;
 
         Ok(WriteRequest {
             index_group,
@@ -434,7 +434,7 @@ impl ReadFrom for WriteControlRequest {
         let device_state = read.read_u16::<LittleEndian>()?;
         let length = read.read_u32::<LittleEndian>()?;
         let mut data: Vec<u8> = Vec::with_capacity(length as usize);
-        read.read_to_end(&mut data);
+        read.read_to_end(&mut data)?;
         Ok(WriteControlRequest {
             ads_state,
             device_state,
@@ -485,10 +485,10 @@ impl WriteTo for AddDeviceNotificationRequest {
         wtr.write_u32::<LittleEndian>(self.index_group)?;
         wtr.write_u32::<LittleEndian>(self.index_offset)?;
         wtr.write_u32::<LittleEndian>(self.length)?;
-        self.transmission_mode.write_to(&mut wtr);
+        self.transmission_mode.write_to(&mut wtr)?;
         wtr.write_u32::<LittleEndian>(self.max_delay)?;
         wtr.write_u32::<LittleEndian>(self.cycle_time)?;
-        wtr.write_all(&self.reserved);
+        wtr.write_all(&self.reserved)?;
         Ok(())
     }
 }
@@ -576,7 +576,7 @@ impl WriteTo for ReadWriteRequest {
         wtr.write_u32::<LittleEndian>(self.index_offset)?;
         wtr.write_u32::<LittleEndian>(self.read_length)?;
         wtr.write_u32::<LittleEndian>(self.write_length)?;
-        wtr.write_all(self.data.as_slice());
+        wtr.write_all(self.data.as_slice())?;
         Ok(())
     }
 }
@@ -588,7 +588,7 @@ impl ReadFrom for ReadWriteRequest {
         let read_length = read.read_u32::<LittleEndian>()?;
         let write_length = read.read_u32::<LittleEndian>()?;
         let mut data: Vec<u8> = Vec::with_capacity(write_length as usize);
-        read.read_to_end(&mut data);
+        read.read_to_end(&mut data)?;
 
         Ok(ReadWriteRequest {
             index_group,

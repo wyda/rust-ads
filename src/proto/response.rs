@@ -218,11 +218,11 @@ impl ReadFrom for ReadDeviceInfoResponse {
 
 impl WriteTo for ReadDeviceInfoResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result.as_u32());
-        wtr.write_u8(self.major_version);
-        wtr.write_u8(self.minor_version);
-        wtr.write_u16::<LittleEndian>(self.version_build);
-        wtr.write_all(&self.device_name);
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
+        wtr.write_u8(self.major_version)?;
+        wtr.write_u8(self.minor_version)?;
+        wtr.write_u16::<LittleEndian>(self.version_build)?;
+        wtr.write_all(&self.device_name)?;
         Ok(())
     }
 }
@@ -260,7 +260,7 @@ impl ReadFrom for WriteResponse {
 
 impl WriteTo for WriteResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
         Ok(())
     }
 }
@@ -291,9 +291,9 @@ impl ReadFrom for ReadStateResponse {
 
 impl WriteTo for ReadStateResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result.as_u32());
-        self.ads_state.write_to(&mut wtr);
-        wtr.write_u16::<LittleEndian>(self.device_state);
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
+        self.ads_state.write_to(&mut wtr)?;
+        wtr.write_u16::<LittleEndian>(self.device_state)?;
         Ok(())
     }
 }
@@ -324,7 +324,7 @@ impl ReadFrom for WriteControlResponse {
 
 impl WriteTo for WriteControlResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
         Ok(())
     }
 }
@@ -353,8 +353,8 @@ impl ReadFrom for AddDeviceNotificationResponse {
 
 impl WriteTo for AddDeviceNotificationResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result.as_u32());
-        wtr.write_u32::<LittleEndian>(self.notification_handle);
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
+        wtr.write_u32::<LittleEndian>(self.notification_handle)?;
         Ok(())
     }
 }
@@ -384,7 +384,7 @@ impl ReadFrom for DeleteDeviceNotificationResponse {
 
 impl WriteTo for DeleteDeviceNotificationResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result.as_u32());
+        wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
         Ok(())
     }
 }
@@ -431,7 +431,7 @@ impl ReadFrom for AdsStampHeader {
         let mut notification_samples: Vec<AdsNotificationSample> =
             Vec::with_capacity(samples as usize);
 
-        for n in 0..samples {
+        for _ in 0..samples {
             let notification_handle = read.read_u32::<LittleEndian>()?;
             let sample_size = read.read_u32::<LittleEndian>()?;
             let mut data = vec![0; sample_size as usize];
@@ -453,13 +453,13 @@ impl ReadFrom for AdsStampHeader {
 
 impl WriteTo for AdsStampHeader {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u64::<LittleEndian>(self.time_stamp);
-        wtr.write_u32::<LittleEndian>(self.samples);
+        wtr.write_u64::<LittleEndian>(self.time_stamp)?;
+        wtr.write_u32::<LittleEndian>(self.samples)?;
 
         for sample in &self.notification_samples {
-            wtr.write_u32::<LittleEndian>(sample.notification_handle);
-            wtr.write_u32::<LittleEndian>(sample.sample_size);
-            wtr.write_all(sample.data.as_slice());
+            wtr.write_u32::<LittleEndian>(sample.notification_handle)?;
+            wtr.write_u32::<LittleEndian>(sample.sample_size)?;
+            wtr.write_all(sample.data.as_slice())?;
         }
         Ok(())
     }
@@ -503,8 +503,8 @@ impl ReadFrom for AdsNotificationStream {
         let mut ads_stamp_headers: Vec<AdsStampHeader> = Vec::with_capacity(stamps as usize);
         let mut buffer: Vec<u8> = vec![0; stamp_data_size as usize];
 
-        for n in 0..stamps {
-            read.read_exact(&mut buffer.as_mut_slice());
+        for _ in 0..stamps {
+            read.read_exact(&mut buffer.as_mut_slice())?;
             let stamp = AdsStampHeader::read_from(&mut buffer.as_slice())?;
             ads_stamp_headers.push(stamp);
         }
@@ -519,11 +519,11 @@ impl ReadFrom for AdsNotificationStream {
 
 impl WriteTo for AdsNotificationStream {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.length);
-        wtr.write_u32::<LittleEndian>(self.stamps);
+        wtr.write_u32::<LittleEndian>(self.length)?;
+        wtr.write_u32::<LittleEndian>(self.stamps)?;
 
         for stamp_header in &self.ads_stamp_headers {
-            stamp_header.write_to(&mut wtr);
+            stamp_header.write_to(&mut wtr)?;
         }
         Ok(())
     }
@@ -574,7 +574,7 @@ impl WriteTo for ReadResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
         wtr.write_u32::<LittleEndian>(self.length)?;
-        wtr.write_all(self.data.as_slice());
+        wtr.write_all(self.data.as_slice())?;
         Ok(())
     }
 }
@@ -615,7 +615,7 @@ impl WriteTo for ReadWriteResponse {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         wtr.write_u32::<LittleEndian>(self.result.as_u32())?;
         wtr.write_u32::<LittleEndian>(self.length)?;
-        wtr.write_all(self.data.as_slice());
+        wtr.write_all(self.data.as_slice())?;
         Ok(())
     }
 }

@@ -1,6 +1,3 @@
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{BufRead, BufReader, Read, Write};
-
 #[derive(Debug, Clone)]
 pub enum PlcTypes {
     Bool,

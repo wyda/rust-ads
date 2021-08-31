@@ -1,4 +1,3 @@
-use crate::proto::response;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Clone)]
