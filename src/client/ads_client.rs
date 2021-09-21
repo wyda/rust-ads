@@ -375,7 +375,8 @@ impl<'a> Connection<'a> {
         let mut response = self.read_response(invoke_id)?.recv()?;
         let response: AddDeviceNotificationResponse = response.1?.try_into()?;
         Connection::check_ads_error(&response.result)?;
-        self.notification_handles.insert(var.name, response.notification_handle);
+        self.notification_handles
+            .insert(var.name, response.notification_handle);
 
         let rx = self.read_response(invoke_id)?;
         Ok(rx)
