@@ -1,17 +1,24 @@
 use anyhow::anyhow;
 use byteorder::{LittleEndian, ReadBytesExt};
+use std::collections::hash_map;
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Write};
 use std::net::TcpStream;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::result;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use std::thread::JoinHandle;
 
 use crate::ads_services::system_services::*;
 use crate::client::plc_types::{SymHandle, Var};
+use crate::client::read::AdsReader;
 use crate::error::AdsError;
 use crate::proto::ads_state::*;
+use crate::proto::ads_transition_mode::AdsTransMode;
 use crate::proto::ams_address::{AmsAddress, AmsNetId};
 use crate::proto::ams_header::*;
+use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::*;
 use crate::proto::request::*;
 use crate::proto::response::*;
@@ -36,6 +43,10 @@ pub struct Connection<'a> {
     ams_source_address: AmsAddress,
     stream: Option<TcpStream>,
     sym_handle: HashMap<&'a str, SymHandle>,
+    read_thread: Option<JoinHandle<ClientResult<()>>>,
+    tx_thread: Option<Sender<(u32, Sender<Result<Response, AdsError>>)>>,
+    tx_thread_cancel: Option<Sender<bool>>,
+    notification_handles: HashMap<&'a str, u32>,
 }
 
 impl<'a> Connection<'a> {
@@ -51,6 +62,10 @@ impl<'a> Connection<'a> {
             ams_source_address: AmsAddress::new(AmsNetId::from([0, 0, 0, 0, 0, 0]), 0),
             stream: None,
             sym_handle: HashMap::new(),
+            read_thread: None,
+            tx_thread: None,
+            tx_thread_cancel: None,
+            notification_handles: HashMap::new(),
         }
     }
 
@@ -65,7 +80,7 @@ impl<'a> Connection<'a> {
             self.ams_source_address
                 .update_from_socket_addr(s.local_addr()?.to_string().as_str())?;
         }
-        Ok(())
+        self.run_reader_thread()
     }
 
     pub fn connect_secure(&mut self) -> ClientResult<()> {
@@ -108,31 +123,67 @@ impl<'a> Connection<'a> {
         Err(anyhow!(AdsError::ErrPortNotConnected))
     }
 
-    pub fn read_response(&mut self) -> ClientResult<AmsTcpHeader> {
-        let mut buf = vec![0; AMS_HEADER_SIZE];
-        let mut reader = self.get_reader()?;
-        reader.read_exact(&mut buf)?;
-        let mut ams_tcp_header = AmsTcpHeader::read_from(&mut buf.as_slice())?;
+    fn run_reader_thread(&mut self) -> ClientResult<()> {
+        let (tx, rx) = channel::<(u32, Sender<Result<Response, AdsError>>)>();
+        self.tx_thread = Some(tx);
+        let rx_thread = rx;
+        let (tx, rx) = channel::<bool>();
+        self.tx_thread_cancel = Some(tx);
+        let rx_thread_cancel = rx;
+        let mut reader: AdsReader;
 
-        if ams_tcp_header.response_data_len() > 0 {
-            let mut buf = vec![0; ams_tcp_header.response_data_len() as usize];
-            reader.read_exact(&mut buf)?;
-            ams_tcp_header.update_response_data(buf);
-            return Ok(ams_tcp_header);
+        if let Some(s) = &mut self.stream {
+            let mut stream = s.try_clone()?;
+            reader = AdsReader::new(stream);
+        } else {
+            panic!("No tcp stream available"); //ToDo
         }
-        Ok(ams_tcp_header)
+
+        self.read_thread = Some(thread::spawn(move || {
+            let mut order_book: HashMap<u32, Sender<Result<Response, AdsError>>> = HashMap::new();
+            let mut cancel: bool = false;
+            let mut order: (u32, Sender<Result<Response, AdsError>>);
+            let mut buf: Vec<u8> = vec![0; AMS_HEADER_SIZE];
+            let mut tcp_ams_header: AmsTcpHeader;
+            while (!cancel) {
+                if let Ok(order) = rx_thread.recv() {
+                    order_book.insert(order.0, order.1);
+                }
+
+                tcp_ams_header = reader.read_response()?;
+
+                if tcp_ams_header.ads_error() == &AdsError::ErrNoError {
+                    if let Some(sender) = order_book.get(&tcp_ams_header.invoke_id()) {
+                        let response = tcp_ams_header.response()?;
+                        sender.send(Ok(response));
+                    }
+                } else if let Some(sender) = order_book.get(&tcp_ams_header.invoke_id()) {
+                    sender.send(Err(tcp_ams_header.ads_error().clone()));
+                }
+
+                if let Ok(c) = rx_thread_cancel.try_recv() {
+                    cancel = c;
+                }
+            }
+            Ok(())
+        }));
+        Ok(())
     }
 
-    fn get_reader(&mut self) -> ClientResult<BufReader<&mut TcpStream>> {
-        if let Some(s) = &mut self.stream {
-            Ok(BufReader::new(s))
-        } else {
-            Err(anyhow!(AdsError::ErrPortNotConnected))
+    pub fn read_response(
+        &mut self,
+        invoke_id: u32,
+    ) -> ClientResult<Receiver<(u32, Result<Response, AdsError>)>> {
+        if let Some(tx) = &self.tx_thread {
+            let (tx, rx) = channel::<(u32, Result<Response, AdsError>)>();
+            tx.send((invoke_id, Err(AdsError::ErrNoError)));
+            return Ok(rx);
         }
+        Err(anyhow!("No channel to reader thread found!")) //ToDo proper error
     }
 
     //trial
-    pub fn get_symhandle(&mut self, var: &Var<'a>) -> ClientResult<u32> {
+    pub fn get_symhandle(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<u32> {
         if self.sym_handle.contains_key(var.name) {
             if let Some(handle) = self.sym_handle.get(var.name) {
                 return Ok(handle.handle);
@@ -148,9 +199,8 @@ impl<'a> Connection<'a> {
         ));
 
         self.request(request, 0)?;
-        let mut ams_tcp_header = self.read_response()?;
-        let response: ReadWriteResponse = ams_tcp_header.response()?.try_into()?;
-        Connection::check_ads_error(ams_tcp_header.ads_error())?;
+        let mut response = self.read_response(invoke_id)?.recv()?; //blocking call to the channel rx
+        let response: ReadWriteResponse = response.1?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         let handle = SymHandle::new(raw_handle, var.plc_type.clone());
@@ -161,7 +211,7 @@ impl<'a> Connection<'a> {
     //trial
     pub fn read_by_name(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var)?;
+            self.get_symhandle(var, invoke_id)?;
         }
 
         if let Some(handle) = self.sym_handle.get(var.name) {
@@ -171,9 +221,8 @@ impl<'a> Connection<'a> {
                 var.plc_type.size() as u32,
             ));
             self.request(request, invoke_id)?;
-            let mut ams_tcp_header = self.read_response()?;
-            let response: ReadResponse = ams_tcp_header.response()?.try_into()?;
-            Connection::check_ads_error(ams_tcp_header.ads_error())?;
+            let mut response = self.read_response(invoke_id)?.recv()?;
+            let response: ReadResponse = response.1?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid
             match Connection::check_ads_error(&response.result) {
                 Ok(()) => Ok(response.data),
@@ -189,20 +238,18 @@ impl<'a> Connection<'a> {
         }
     }
 
-    pub fn read_device_info(&mut self) -> ClientResult<ReadDeviceInfoResponse> {
+    pub fn read_device_info(&mut self, invoke_id: u32) -> ClientResult<ReadDeviceInfoResponse> {
         self.request(Request::ReadDeviceInfo(ReadDeviceInfoRequest::new()), 0);
-        let mut ams_tcp_header = self.read_response()?;
-        let response: ReadDeviceInfoResponse = ams_tcp_header.response()?.try_into()?;
-        Connection::check_ads_error(ams_tcp_header.ads_error())?;
+        let mut response = self.read_response(invoke_id)?.recv()?;
+        let response: ReadDeviceInfoResponse = response.1?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
     }
 
-    pub fn read_state(&mut self) -> ClientResult<ReadStateResponse> {
+    pub fn read_state(&mut self, invoke_id: u32) -> ClientResult<ReadStateResponse> {
         self.request(Request::ReadState(ReadStateRequest::new()), 0);
-        let mut ams_tcp_header = self.read_response()?;
-        let response: ReadStateResponse = ams_tcp_header.response()?.try_into()?;
-        Connection::check_ads_error(ams_tcp_header.ads_error())?;
+        let response = self.read_response(invoke_id)?.recv()?;
+        let response: ReadStateResponse = response.1?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
     }
@@ -214,7 +261,7 @@ impl<'a> Connection<'a> {
         data: Vec<u8>,
     ) -> ClientResult<()> {
         if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var)?;
+            self.get_symhandle(var, invoke_id)?;
         }
 
         if let Some(handle) = self.sym_handle.get(var.name) {
@@ -225,9 +272,8 @@ impl<'a> Connection<'a> {
                 data,
             ));
             self.request(request, invoke_id)?;
-            let mut ams_tcp_header = self.read_response()?;
-            let response: WriteResponse = ams_tcp_header.response()?.try_into()?;
-            Connection::check_ads_error(ams_tcp_header.ads_error())?;
+            let response = self.read_response(invoke_id)?.recv()?;
+            let response: ReadResponse = response.1?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid in response data
             match Connection::check_ads_error(&response.result) {
                 Ok(()) => Ok(()),
@@ -248,6 +294,7 @@ impl<'a> Connection<'a> {
         &mut self,
         new_ads_state: AdsState,
         device_state: u16,
+        invoke_id: u32,
     ) -> ClientResult<()> {
         self.request(
             Request::WriteControl(WriteControlRequest::new(
@@ -258,9 +305,8 @@ impl<'a> Connection<'a> {
             )),
             0,
         );
-        let mut ams_tcp_header = self.read_response()?;
-        let response: WriteControlResponse = ams_tcp_header.response()?.try_into()?;
-        Connection::check_ads_error(ams_tcp_header.ads_error())?;
+        let mut response = self.read_response(invoke_id)?.recv()?;
+        let response: WriteControlResponse = response.1?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(())
     }
@@ -272,24 +318,67 @@ impl<'a> Connection<'a> {
         data: Vec<u8>,
     ) -> ClientResult<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var)?;
+            self.get_symhandle(var, invoke_id)?;
         }
 
-        if let Some(handle) = self.sym_handle.get(var.name) {
-            let request = Request::ReadWrite(ReadWriteRequest::new(
+        let mut handle_val = 0;
+        if let Some(handle) = self.sym_handle.get(&var.name) {
+            handle_val = handle.handle;
+        }
+
+        self.request(
+            Request::ReadWrite(ReadWriteRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                handle.handle,
+                handle_val,
                 var.plc_type.size() as u32,
                 var.plc_type.size() as u32,
                 data,
-            ));
-        }
+            )),
+            invoke_id,
+        );
 
-        let mut ams_tcp_header = self.read_response()?;
-        let response: ReadWriteResponse = ams_tcp_header.response()?.try_into()?;
-        Connection::check_ads_error(ams_tcp_header.ads_error())?;
+        let mut response = self.read_response(invoke_id)?.recv()?;
+        let response: ReadWriteResponse = response.1?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response.data)
+    }
+
+    pub fn add_device_notification(
+        &mut self,
+        var: &Var<'a>,
+        trans_mode: AdsTransMode,
+        max_delay: u32,
+        cycle_time: u32,
+        invoke_id: u32,
+    ) -> ClientResult<Receiver<(u32, Result<Response, AdsError>)>> {
+        if !self.sym_handle.contains_key(&var.name) {
+            self.get_symhandle(var, invoke_id)?;
+        }
+
+        let mut handle_val = 0;
+        if let Some(handle) = self.sym_handle.get(&var.name) {
+            handle_val = handle.handle;
+        }
+
+        self.request(
+            Request::AddDeviceNotification(AddDeviceNotificationRequest::new(
+                READ_WRITE_SYMVAL_BY_HANDLE.index_group,
+                handle_val,
+                var.plc_type.size() as u32,
+                trans_mode,
+                max_delay,
+                cycle_time,
+            )),
+            invoke_id,
+        );
+
+        let mut response = self.read_response(invoke_id)?.recv()?;
+        let response: AddDeviceNotificationResponse = response.1?.try_into()?;
+        Connection::check_ads_error(&response.result)?;
+        self.notification_handles.insert(var.name, response.notification_handle);
+
+        let rx = self.read_response(invoke_id)?;
+        Ok(rx)
     }
 
     fn check_ads_error(ads_error: &AdsError) -> Result<(), AdsError> {
