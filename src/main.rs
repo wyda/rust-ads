@@ -15,8 +15,8 @@ use std::convert::TryInto;
 
 fn main() {
     //Connect to remote device
-    let ams_targed_address = AmsAddress::new(AmsNetId::from([10, 2, 129, 68, 1, 1]), 851);
-    let route = Some(Ipv4Addr::new(10, 2, 129, 68));
+    let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
+    let route = Some(Ipv4Addr::new(192, 168, 0, 150));
     let mut connection = Connection::new(route, ams_targed_address);
     
     match connection.connect() {
@@ -36,14 +36,13 @@ fn main() {
             println!("failed to add device notification!\n{}", e);
             return
         },
-    };
+    };    
 
     let mut valid = true;
     while valid {
         match notification_rx.try_recv() {
-            Ok(r) => {
-                println!("Invode ID is {}\n", r.0);
-                if let Ok(stream) = r.1 {
+            Ok(r) => {                
+                if let Ok(stream) = r {
                     let response: AdsNotificationStream = match stream.try_into() {
                         Ok(r) => r,
                         Err(e) => {
@@ -60,5 +59,5 @@ fn main() {
                 continue
             }            
         };
-    } 
+    }    
 }

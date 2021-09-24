@@ -145,16 +145,16 @@ impl<'a> Connection<'a> {
             let mut order: (u32, Sender<Result<Response, AdsError>>);
             let mut buf: Vec<u8> = vec![0; AMS_HEADER_SIZE];
             let mut tcp_ams_header: AmsTcpHeader;
-            while (!cancel) {
+            while (!cancel) {                
                 if let Ok(order) = rx_thread.recv() {
                     order_book.insert(order.0, order.1);
-                }
+                }               
 
-                tcp_ams_header = reader.read_response()?;
+                tcp_ams_header = reader.read_response()?;                
 
-                if tcp_ams_header.ads_error() == &AdsError::ErrNoError {
+                if tcp_ams_header.ads_error() == &AdsError::ErrNoError {                    
                     if let Some(sender) = order_book.get(&tcp_ams_header.invoke_id()) {
-                        let response = tcp_ams_header.response()?;
+                        let response = tcp_ams_header.response()?;                       
                         sender.send(Ok(response));
                     }
                 } else if let Some(sender) = order_book.get(&tcp_ams_header.invoke_id()) {
@@ -163,8 +163,8 @@ impl<'a> Connection<'a> {
 
                 if let Ok(c) = rx_thread_cancel.try_recv() {
                     cancel = c;
-                }
-            }
+                }              
+            }            
             Ok(())
         }));
         Ok(())
@@ -173,10 +173,10 @@ impl<'a> Connection<'a> {
     pub fn read_response(
         &mut self,
         invoke_id: u32,
-    ) -> ClientResult<Receiver<(u32, Result<Response, AdsError>)>> {
-        if let Some(tx) = &self.tx_thread {
-            let (tx, rx) = channel::<(u32, Result<Response, AdsError>)>();
-            tx.send((invoke_id, Err(AdsError::ErrNoError)));
+    ) -> ClientResult<Receiver<Result<Response, AdsError>>> {
+        if let Some(tx_thread) = &self.tx_thread {
+            let (tx, rx) = channel::<Result<Response, AdsError>>();
+            tx_thread.send((invoke_id, tx));                              
             return Ok(rx);
         }
         Err(anyhow!("No channel to reader thread found!")) //ToDo proper error
@@ -196,12 +196,13 @@ impl<'a> Connection<'a> {
             4, //allways u32 for get_symhandle
             var.name.len() as u32,
             var.name.as_bytes().to_vec(),
-        ));
+        ));        
 
-        self.request(request, 0)?;
-        let mut response = self.read_response(invoke_id)?.recv()?; //blocking call to the channel rx
-        let response: ReadWriteResponse = response.1?.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        self.request(request, 0)?;                 
+        let mut response = self.read_response(invoke_id)?; //blocking call to the channel rx            
+        let mut response = response.recv().unwrap();                    
+        let response: ReadResponse = response?.try_into()?;                
+        Connection::check_ads_error(&response.result)?;        
         let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         let handle = SymHandle::new(raw_handle, var.plc_type.clone());
         self.sym_handle.insert(var.name, handle);
@@ -222,7 +223,7 @@ impl<'a> Connection<'a> {
             ));
             self.request(request, invoke_id)?;
             let mut response = self.read_response(invoke_id)?.recv()?;
-            let response: ReadResponse = response.1?.try_into()?;
+            let response: ReadResponse = response?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid
             match Connection::check_ads_error(&response.result) {
                 Ok(()) => Ok(response.data),
@@ -241,7 +242,7 @@ impl<'a> Connection<'a> {
     pub fn read_device_info(&mut self, invoke_id: u32) -> ClientResult<ReadDeviceInfoResponse> {
         self.request(Request::ReadDeviceInfo(ReadDeviceInfoRequest::new()), 0);
         let mut response = self.read_response(invoke_id)?.recv()?;
-        let response: ReadDeviceInfoResponse = response.1?.try_into()?;
+        let response: ReadDeviceInfoResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
     }
@@ -249,7 +250,7 @@ impl<'a> Connection<'a> {
     pub fn read_state(&mut self, invoke_id: u32) -> ClientResult<ReadStateResponse> {
         self.request(Request::ReadState(ReadStateRequest::new()), 0);
         let response = self.read_response(invoke_id)?.recv()?;
-        let response: ReadStateResponse = response.1?.try_into()?;
+        let response: ReadStateResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
     }
@@ -273,7 +274,7 @@ impl<'a> Connection<'a> {
             ));
             self.request(request, invoke_id)?;
             let response = self.read_response(invoke_id)?.recv()?;
-            let response: ReadResponse = response.1?.try_into()?;
+            let response: ReadResponse = response?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid in response data
             match Connection::check_ads_error(&response.result) {
                 Ok(()) => Ok(()),
@@ -306,7 +307,7 @@ impl<'a> Connection<'a> {
             0,
         );
         let mut response = self.read_response(invoke_id)?.recv()?;
-        let response: WriteControlResponse = response.1?.try_into()?;
+        let response: WriteControlResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(())
     }
@@ -338,7 +339,7 @@ impl<'a> Connection<'a> {
         );
 
         let mut response = self.read_response(invoke_id)?.recv()?;
-        let response: ReadWriteResponse = response.1?.try_into()?;
+        let response: ReadWriteResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response.data)
     }
@@ -350,15 +351,15 @@ impl<'a> Connection<'a> {
         max_delay: u32,
         cycle_time: u32,
         invoke_id: u32,
-    ) -> ClientResult<Receiver<(u32, Result<Response, AdsError>)>> {
-        if !self.sym_handle.contains_key(&var.name) {
+    ) -> ClientResult<Receiver<Result<Response, AdsError>>> {
+        if !self.sym_handle.contains_key(&var.name) {                  
             self.get_symhandle(var, invoke_id)?;
         }
 
         let mut handle_val = 0;
         if let Some(handle) = self.sym_handle.get(&var.name) {
-            handle_val = handle.handle;
-        }
+            handle_val = handle.handle;            
+        }        
 
         self.request(
             Request::AddDeviceNotification(AddDeviceNotificationRequest::new(
@@ -373,7 +374,7 @@ impl<'a> Connection<'a> {
         );
 
         let mut response = self.read_response(invoke_id)?.recv()?;
-        let response: AddDeviceNotificationResponse = response.1?.try_into()?;
+        let response: AddDeviceNotificationResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         self.notification_handles
             .insert(var.name, response.notification_handle);
