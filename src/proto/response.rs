@@ -499,12 +499,11 @@ impl ReadFrom for AdsNotificationStream {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         let length = read.read_u32::<LittleEndian>()?;
         let stamps = read.read_u32::<LittleEndian>()?;
-        let stamp_data_size = (length / stamps) as u64;
+        let stamp_data_size = ((length - 4) / stamps) as u32; //-4 -> stamps is in length incl. but already read in previous line!
         let mut ads_stamp_headers: Vec<AdsStampHeader> = Vec::with_capacity(stamps as usize);
-        let mut buffer: Vec<u8> = vec![0; stamp_data_size as usize];
-
+        let mut buffer: Vec<u8> = vec![0; ((stamp_data_size) as usize)];
         for _ in 0..stamps {
-            read.read_exact(&mut buffer.as_mut_slice())?;
+            read.read_exact(&mut buffer)?;
             let stamp = AdsStampHeader::read_from(&mut buffer.as_slice())?;
             ads_stamp_headers.push(stamp);
         }
@@ -792,7 +791,7 @@ mod tests {
         stamp_header.extend(notification_sample1);
         stamp_header.extend(notification_sample2);
 
-        let mut notification_stream: Vec<u8> = vec![68, 0, 0, 0, 2, 0, 0, 0];
+        let mut notification_stream: Vec<u8> = vec![72, 0, 0, 0, 2, 0, 0, 0];
         notification_stream.extend(stamp_header.clone());
         notification_stream.extend(stamp_header);
 
@@ -814,7 +813,7 @@ mod tests {
         stamp_header.extend(notification_sample1);
         stamp_header.extend(notification_sample2);
 
-        let mut notification_stream: Vec<u8> = vec![68, 0, 0, 0, 2, 0, 0, 0];
+        let mut notification_stream: Vec<u8> = vec![72, 0, 0, 0, 2, 0, 0, 0];
         notification_stream.extend(stamp_header.clone());
         notification_stream.extend(stamp_header);
 
@@ -1025,14 +1024,14 @@ mod tests {
         stamp_header.extend(notification_sample1);
         stamp_header.extend(notification_sample2);
 
-        let mut notification_stream: Vec<u8> = vec![68, 0, 0, 0, 2, 0, 0, 0];
+        let mut notification_stream: Vec<u8> = vec![72, 0, 0, 0, 2, 0, 0, 0];
         notification_stream.extend(stamp_header.clone());
         notification_stream.extend(stamp_header);
 
         let notification_data =
             AdsNotificationStream::read_from(&mut notification_stream.as_slice()).unwrap();
 
-        assert_eq!(notification_data.length, 68, "Wrong data stream length");
+        assert_eq!(notification_data.length, 72, "Wrong data stream length");
         assert_eq!(notification_data.stamps, 2, "Wrong data stream stamp count");
         assert_eq!(
             notification_data.ads_stamp_headers.len(),
@@ -1170,8 +1169,9 @@ fn ads_notification_stream_write_to_test() {
     for header in &stamp_headers {
         len += header.stamp_len();
     }
+    len += 4; //4 byte for the u32 stamps var after length
 
-    let expected_len: usize = 62;
+    let expected_len: usize = 66;
     assert_eq!(&len, &expected_len, "Wrong number of bytes");
 
     //4+4+34+28=70byte
@@ -1192,7 +1192,7 @@ fn ads_notification_stream_write_to_test() {
     #[rustfmt::skip]
     let expected_data = [
         //Notification stream Length
-        62, 0, 0, 0,
+        66, 0, 0, 0,
         ////Notification stream number of stamps
         2, 0, 0, 0,
         //Stamp header1 time_stamp

@@ -7,6 +7,8 @@ use std::net::TcpStream;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::result;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -44,7 +46,9 @@ pub struct Connection<'a> {
     stream: Option<TcpStream>,
     sym_handle: HashMap<&'a str, SymHandle>,
     read_thread: Option<JoinHandle<ClientResult<()>>>,
-    tx_thread: Option<Sender<(u32, Sender<Result<Response, AdsError>>)>>,
+    notification_channels: Arc<Mutex<HashMap<u32, Sender<Result<Response, AdsError>>>>>,
+    device_notification_stream_channels:
+        Arc<Mutex<HashMap<u32, Sender<Result<AdsNotificationStream, AdsError>>>>>,
     tx_thread_cancel: Option<Sender<bool>>,
     notification_handles: HashMap<&'a str, u32>,
 }
@@ -63,7 +67,8 @@ impl<'a> Connection<'a> {
             stream: None,
             sym_handle: HashMap::new(),
             read_thread: None,
-            tx_thread: None,
+            notification_channels: Arc::new(Mutex::new(HashMap::new())),
+            device_notification_stream_channels: Arc::new(Mutex::new(HashMap::new())),
             tx_thread_cancel: None,
             notification_handles: HashMap::new(),
         }
@@ -124,9 +129,6 @@ impl<'a> Connection<'a> {
     }
 
     fn run_reader_thread(&mut self) -> ClientResult<()> {
-        let (tx, rx) = channel::<(u32, Sender<Result<Response, AdsError>>)>();
-        self.tx_thread = Some(tx);
-        let rx_thread = rx;
         let (tx, rx) = channel::<bool>();
         self.tx_thread_cancel = Some(tx);
         let rx_thread_cancel = rx;
@@ -139,47 +141,112 @@ impl<'a> Connection<'a> {
             panic!("No tcp stream available"); //ToDo
         }
 
+        let notificatino_channels = Arc::clone(&self.notification_channels);
+        let notification_stream_channels = Arc::clone(&self.device_notification_stream_channels);
+
         self.read_thread = Some(thread::spawn(move || {
-            let mut order_book: HashMap<u32, Sender<Result<Response, AdsError>>> = HashMap::new();
             let mut cancel: bool = false;
-            let mut order: (u32, Sender<Result<Response, AdsError>>);
             let mut buf: Vec<u8> = vec![0; AMS_HEADER_SIZE];
             let mut tcp_ams_header: AmsTcpHeader;
-            while (!cancel) {                
-                if let Ok(order) = rx_thread.recv() {
-                    order_book.insert(order.0, order.1);
-                }               
-
-                tcp_ams_header = reader.read_response()?;                
-
-                if tcp_ams_header.ads_error() == &AdsError::ErrNoError {                    
-                    if let Some(sender) = order_book.get(&tcp_ams_header.invoke_id()) {
-                        let response = tcp_ams_header.response()?;                       
-                        sender.send(Ok(response));
+            while (!cancel) {
+                println!("try read........");
+                tcp_ams_header = reader.read_response()?;
+                println!("........got response");
+                match tcp_ams_header.command_id() {
+                    CommandID::DeleteDeviceNotification => {
+                        println!(
+                            "??????????????????!!!!!!!!!!!!!!!!!!!!!!!!!!!!! {:?}",
+                            tcp_ams_header.invoke_id()
+                        );
                     }
-                } else if let Some(sender) = order_book.get(&tcp_ams_header.invoke_id()) {
-                    sender.send(Err(tcp_ams_header.ads_error().clone()));
+
+                    CommandID::DeviceNotification => {
+                        let mut channels = match notification_stream_channels.lock() {
+                            Ok(c) => c,
+                            Err(_) => panic!("Failed to get lock!"),
+                        };
+
+                        let stream: AdsNotificationStream =
+                            tcp_ams_header.response()?.try_into()?;
+                        let mut handle = 0;
+                        for header in stream.ads_stamp_headers {
+                            for sample in header.notification_samples {
+                                handle = sample.notification_handle;
+                            }
+                        }
+
+                        if let Some(sender) = channels.get(&handle) {
+                            if tcp_ams_header.ads_error() == &AdsError::ErrNoError {
+                                let response: AdsNotificationStream =
+                                    tcp_ams_header.response()?.try_into()?;
+                                sender.send(Ok(response));
+                            } else {
+                                sender.send(Err(tcp_ams_header.ads_error().clone()));
+                            }
+                        } else {
+                            println!(
+                                "No sender for invoke id {:?} found",
+                                &tcp_ams_header.invoke_id()
+                            )
+                        }
+                    }
+                    _ => {
+                        let mut channels = match notificatino_channels.lock() {
+                            Ok(c) => c,
+                            Err(_) => panic!("Failed to get lock!"),
+                        };
+
+                        if let Some(sender) = channels.get(&tcp_ams_header.invoke_id()) {
+                            if tcp_ams_header.ads_error() == &AdsError::ErrNoError {
+                                let response = tcp_ams_header.response()?;
+                                sender.send(Ok(response));
+                            } else {
+                                sender.send(Err(tcp_ams_header.ads_error().clone()));
+                            }
+                        } else {
+                            println!(
+                                "No sender for invoke id {:?} found",
+                                &tcp_ams_header.invoke_id()
+                            )
+                        }
+                    }
                 }
 
                 if let Ok(c) = rx_thread_cancel.try_recv() {
                     cancel = c;
-                }              
-            }            
+                }
+            }
             Ok(())
         }));
         Ok(())
     }
 
-    pub fn read_response(
+    fn create_response_channel(
         &mut self,
         invoke_id: u32,
     ) -> ClientResult<Receiver<Result<Response, AdsError>>> {
-        if let Some(tx_thread) = &self.tx_thread {
-            let (tx, rx) = channel::<Result<Response, AdsError>>();
-            tx_thread.send((invoke_id, tx));                              
-            return Ok(rx);
-        }
-        Err(anyhow!("No channel to reader thread found!")) //ToDo proper error
+        let mut channels = match self.notification_channels.lock() {
+            Ok(c) => c,
+            Err(_) => panic!("Failed to get lock!"),
+        };
+
+        let (tx, rx) = channel::<Result<Response, AdsError>>();
+        channels.insert(invoke_id, tx);
+        Ok(rx)
+    }
+
+    fn read_device_notification_response(
+        &mut self,
+        handle: u32,
+    ) -> ClientResult<Receiver<Result<AdsNotificationStream, AdsError>>> {
+        let mut channels = match self.device_notification_stream_channels.lock() {
+            Ok(c) => c,
+            Err(_) => panic!("Failed to get lock!"),
+        };
+
+        let (tx, rx) = channel::<Result<AdsNotificationStream, AdsError>>();
+        channels.insert(handle, tx);
+        Ok(rx)
     }
 
     //trial
@@ -196,13 +263,13 @@ impl<'a> Connection<'a> {
             4, //allways u32 for get_symhandle
             var.name.len() as u32,
             var.name.as_bytes().to_vec(),
-        ));        
-
-        self.request(request, 0)?;                 
-        let mut response = self.read_response(invoke_id)?; //blocking call to the channel rx            
-        let mut response = response.recv().unwrap();                    
-        let response: ReadResponse = response?.try_into()?;                
-        Connection::check_ads_error(&response.result)?;        
+        ));
+        self.request(request, invoke_id)?;
+        let mut response: ReadWriteResponse = self
+            .create_response_channel(invoke_id)?
+            .recv()??
+            .try_into()?; //blocking call to the channel rx
+        Connection::check_ads_error(&response.result)?;
         let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         let handle = SymHandle::new(raw_handle, var.plc_type.clone());
         self.sym_handle.insert(var.name, handle);
@@ -222,7 +289,7 @@ impl<'a> Connection<'a> {
                 var.plc_type.size() as u32,
             ));
             self.request(request, invoke_id)?;
-            let mut response = self.read_response(invoke_id)?.recv()?;
+            let mut response = self.create_response_channel(invoke_id)?.recv()?;
             let response: ReadResponse = response?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid
             match Connection::check_ads_error(&response.result) {
@@ -241,7 +308,7 @@ impl<'a> Connection<'a> {
 
     pub fn read_device_info(&mut self, invoke_id: u32) -> ClientResult<ReadDeviceInfoResponse> {
         self.request(Request::ReadDeviceInfo(ReadDeviceInfoRequest::new()), 0);
-        let mut response = self.read_response(invoke_id)?.recv()?;
+        let mut response = self.create_response_channel(invoke_id)?.recv()?;
         let response: ReadDeviceInfoResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
@@ -249,7 +316,7 @@ impl<'a> Connection<'a> {
 
     pub fn read_state(&mut self, invoke_id: u32) -> ClientResult<ReadStateResponse> {
         self.request(Request::ReadState(ReadStateRequest::new()), 0);
-        let response = self.read_response(invoke_id)?.recv()?;
+        let response = self.create_response_channel(invoke_id)?.recv()?;
         let response: ReadStateResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
@@ -273,7 +340,7 @@ impl<'a> Connection<'a> {
                 data,
             ));
             self.request(request, invoke_id)?;
-            let response = self.read_response(invoke_id)?.recv()?;
+            let response = self.create_response_channel(invoke_id)?.recv()?;
             let response: ReadResponse = response?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid in response data
             match Connection::check_ads_error(&response.result) {
@@ -306,7 +373,7 @@ impl<'a> Connection<'a> {
             )),
             0,
         );
-        let mut response = self.read_response(invoke_id)?.recv()?;
+        let mut response = self.create_response_channel(invoke_id)?.recv()?;
         let response: WriteControlResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(())
@@ -338,7 +405,7 @@ impl<'a> Connection<'a> {
             invoke_id,
         );
 
-        let mut response = self.read_response(invoke_id)?.recv()?;
+        let mut response = self.create_response_channel(invoke_id)?.recv()?;
         let response: ReadWriteResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response.data)
@@ -351,15 +418,9 @@ impl<'a> Connection<'a> {
         max_delay: u32,
         cycle_time: u32,
         invoke_id: u32,
-    ) -> ClientResult<Receiver<Result<Response, AdsError>>> {
-        if !self.sym_handle.contains_key(&var.name) {                  
-            self.get_symhandle(var, invoke_id)?;
-        }
-
-        let mut handle_val = 0;
-        if let Some(handle) = self.sym_handle.get(&var.name) {
-            handle_val = handle.handle;            
-        }        
+    ) -> ClientResult<Receiver<Result<AdsNotificationStream, AdsError>>> {
+        let mut handle_val = self.get_symhandle(var, invoke_id)?;
+        let mut response_rx = self.create_response_channel(invoke_id)?;
 
         self.request(
             Request::AddDeviceNotification(AddDeviceNotificationRequest::new(
@@ -373,14 +434,27 @@ impl<'a> Connection<'a> {
             invoke_id,
         );
 
-        let mut response = self.read_response(invoke_id)?.recv()?;
-        let response: AddDeviceNotificationResponse = response?.try_into()?;
+        let response: AddDeviceNotificationResponse = response_rx.recv()??.try_into()?;
         Connection::check_ads_error(&response.result)?;
         self.notification_handles
             .insert(var.name, response.notification_handle);
 
-        let rx = self.read_response(invoke_id)?;
+        let rx = self.read_device_notification_response(response.notification_handle)?;
         Ok(rx)
+    }
+
+    pub fn delete_device_notification(&mut self, var: &Var, invoke_id: u32) -> ClientResult<()> {
+        let response_rx = self.create_response_channel(invoke_id)?;
+        if let Some(handle_val) = self.notification_handles.get(var.name) {
+            let handle = *handle_val;
+            self.request(
+                Request::DeleteDeviceNotification(DeleteDeviceNotificationRequest::new(handle)),
+                invoke_id,
+            );
+        }
+        let response: DeleteDeviceNotificationResponse = response_rx.recv()??.try_into()?;
+        Connection::check_ads_error(&response.result)?;
+        Ok(())
     }
 
     fn check_ads_error(ads_error: &AdsError) -> Result<(), AdsError> {

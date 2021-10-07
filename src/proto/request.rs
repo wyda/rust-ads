@@ -532,7 +532,7 @@ impl ReadFrom for DeleteDeviceNotificationRequest {
 }
 
 impl DeleteDeviceNotificationRequest {
-    fn new(handle: u32) -> Self {
+    pub fn new(handle: u32) -> Self {
         DeleteDeviceNotificationRequest {
             handle,
             command_id: CommandID::DeleteDeviceNotification,

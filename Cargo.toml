@@ -26,6 +26,7 @@ anyhow = "1.0.42"
 structopt = { version = "0.3.2", optional = true }
 log = "0.4"
 bitfield = "0.13.2"
+ctrlc = "3.2.0"
 
 
 [features]
