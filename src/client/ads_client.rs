@@ -128,6 +128,7 @@ impl<'a> Connection<'a> {
         Err(anyhow!(AdsError::ErrPortNotConnected))
     }
 
+    //test
     fn run_reader_thread(&mut self) -> ClientResult<()> {
         let (tx, rx) = channel::<bool>();
         self.tx_thread_cancel = Some(tx);
@@ -149,17 +150,8 @@ impl<'a> Connection<'a> {
             let mut buf: Vec<u8> = vec![0; AMS_HEADER_SIZE];
             let mut tcp_ams_header: AmsTcpHeader;
             while (!cancel) {
-                println!("try read........");
                 tcp_ams_header = reader.read_response()?;
-                println!("........got response");
                 match tcp_ams_header.command_id() {
-                    CommandID::DeleteDeviceNotification => {
-                        println!(
-                            "??????????????????!!!!!!!!!!!!!!!!!!!!!!!!!!!!! {:?}",
-                            tcp_ams_header.invoke_id()
-                        );
-                    }
-
                     CommandID::DeviceNotification => {
                         let mut channels = match notification_stream_channels.lock() {
                             Ok(c) => c,
@@ -185,8 +177,9 @@ impl<'a> Connection<'a> {
                             }
                         } else {
                             println!(
-                                "No sender for invoke id {:?} found",
-                                &tcp_ams_header.invoke_id()
+                                "No sender for invoke id {:?} found ....{:?}",
+                                &tcp_ams_header.invoke_id(),
+                                &tcp_ams_header.command_id()
                             )
                         }
                     }
@@ -205,8 +198,9 @@ impl<'a> Connection<'a> {
                             }
                         } else {
                             println!(
-                                "No sender for invoke id {:?} found",
-                                &tcp_ams_header.invoke_id()
+                                "No sender for invoke id {:?} found ....{:?}",
+                                &tcp_ams_header.invoke_id(),
+                                &tcp_ams_header.command_id()
                             )
                         }
                     }
@@ -307,17 +301,20 @@ impl<'a> Connection<'a> {
     }
 
     pub fn read_device_info(&mut self, invoke_id: u32) -> ClientResult<ReadDeviceInfoResponse> {
-        self.request(Request::ReadDeviceInfo(ReadDeviceInfoRequest::new()), 0);
-        let mut response = self.create_response_channel(invoke_id)?.recv()?;
-        let response: ReadDeviceInfoResponse = response?.try_into()?;
+        let rx = self.create_response_channel(invoke_id)?;
+        self.request(
+            Request::ReadDeviceInfo(ReadDeviceInfoRequest::new()),
+            invoke_id,
+        );
+        let response: ReadDeviceInfoResponse = rx.recv()??.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
     }
 
     pub fn read_state(&mut self, invoke_id: u32) -> ClientResult<ReadStateResponse> {
-        self.request(Request::ReadState(ReadStateRequest::new()), 0);
-        let response = self.create_response_channel(invoke_id)?.recv()?;
-        let response: ReadStateResponse = response?.try_into()?;
+        let rx = self.create_response_channel(invoke_id)?;
+        self.request(Request::ReadState(ReadStateRequest::new()), invoke_id);
+        let response: ReadStateResponse = rx.recv()??.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(response)
     }
@@ -341,7 +338,7 @@ impl<'a> Connection<'a> {
             ));
             self.request(request, invoke_id)?;
             let response = self.create_response_channel(invoke_id)?.recv()?;
-            let response: ReadResponse = response?.try_into()?;
+            let response: WriteResponse = response?.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid in response data
             match Connection::check_ads_error(&response.result) {
                 Ok(()) => Ok(()),
@@ -371,44 +368,12 @@ impl<'a> Connection<'a> {
                 0,
                 Vec::with_capacity(0),
             )),
-            0,
+            invoke_id,
         );
         let mut response = self.create_response_channel(invoke_id)?.recv()?;
         let response: WriteControlResponse = response?.try_into()?;
         Connection::check_ads_error(&response.result)?;
         Ok(())
-    }
-
-    pub fn read_write_by_name(
-        &mut self,
-        var: &Var<'a>,
-        invoke_id: u32,
-        data: Vec<u8>,
-    ) -> ClientResult<Vec<u8>> {
-        if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var, invoke_id)?;
-        }
-
-        let mut handle_val = 0;
-        if let Some(handle) = self.sym_handle.get(&var.name) {
-            handle_val = handle.handle;
-        }
-
-        self.request(
-            Request::ReadWrite(ReadWriteRequest::new(
-                READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                handle_val,
-                var.plc_type.size() as u32,
-                var.plc_type.size() as u32,
-                data,
-            )),
-            invoke_id,
-        );
-
-        let mut response = self.create_response_channel(invoke_id)?.recv()?;
-        let response: ReadWriteResponse = response?.try_into()?;
-        Connection::check_ads_error(&response.result)?;
-        Ok(response.data)
     }
 
     pub fn add_device_notification(
@@ -464,76 +429,3 @@ impl<'a> Connection<'a> {
         Ok(())
     }
 }
-
-/*
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::client::plc_types::PlcTypes;
-    use crate::proto::ams_address::*;
-    #[test]
-    fn connection_test() {
-        //connect to remote
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([10, 2, 129, 68, 1, 1]), 851);
-        let route = Some(Ipv4Addr::new(10, 2, 129, 68));
-        let mut connection = Connection::new(route, ams_targed_address);
-        connection.connect().unwrap();
-
-        //get a var handle
-        let var = Var::new("MAIN.logger.mi_step", PlcTypes::Int);
-        let handle = connection.get_symhandle(&var).unwrap();
-        println!("handle :{:?}", handle);
-        println!("handle list : {:?}", connection.sym_handle.values());
-
-        //read the value of the var by with requested handle
-        let mut results = Vec::new();
-        for _ in 0..1000 {
-            let data = connection.read_by_name(&var, 1234).unwrap();
-            let value = data.as_slice().read_u32::<LittleEndian>().unwrap();
-            results.push(value);
-        }
-
-        let start = results[0];
-        let end = results.last().unwrap();
-        for (n, r) in results.iter().enumerate() {
-            println!("{:?} : {:?}", n, r);
-        }
-        println!("result {:?}", end - start);
-    }
-
-    #[test]
-    fn write_control_test() {
-        //connect to remote
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
-        let route = Some(Ipv4Addr::new(192, 168, 0, 150));
-        let mut connection = Connection::new(route, ams_targed_address);
-        connection.connect().unwrap();
-        assert_eq!(
-            (),
-            connection
-                .write_control(AdsState::AdsStateConfig, 0)
-                .unwrap()
-        );
-    }
-
-    #[test]
-    fn write_test() {
-        //connect to remote
-        let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
-        let route = Some(Ipv4Addr::new(192, 168, 0, 150));
-        let mut connection = Connection::new(route, ams_targed_address);
-        connection.connect().unwrap();
-
-        //get a var handle
-        let var = Var::new("MAIN.counter", PlcTypes::DInt);
-        let handle = connection.get_symhandle(&var).unwrap();
-
-        //read the value of the var by with requested handle
-        let write_value: u32 = 9999;
-        let result = connection
-            .write_by_name(&var, 1234, write_value.to_le_bytes().to_vec())
-            .unwrap();
-        assert_eq!((), result)
-    }
-}
-*/

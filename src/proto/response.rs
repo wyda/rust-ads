@@ -5,6 +5,7 @@ use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::convert::TryInto;
 use std::io::{self, Read, Write};
+use std::string::FromUtf8Error;
 
 #[derive(Debug, PartialEq)]
 pub enum Response {
@@ -242,6 +243,18 @@ impl ReadDeviceInfoResponse {
             version_build,
             device_name,
         }
+    }
+
+    pub fn get_device_name(&self) -> Result<String, FromUtf8Error> {
+        let name_bytes = self
+            .device_name
+            .to_vec()
+            .iter()
+            .filter(|value| **value > 0)
+            .copied()
+            .collect();
+
+        String::from_utf8(name_bytes)
     }
 }
 
@@ -888,6 +901,12 @@ mod tests {
             72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 0, 0, 0, 0, 0,
         ]; //Hello World
         assert_eq!(read_device_info_response.device_name, expected_device_name);
+        let expected_device_name = "Hello World".to_string();
+        assert_eq!(
+            read_device_info_response.get_device_name().unwrap(),
+            expected_device_name,
+            "Parsing device name failed"
+        );
     }
 
     #[test]

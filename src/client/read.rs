@@ -33,8 +33,6 @@ impl AdsReader {
         let mut reader = BufReader::new(&self.stream);
         reader.read_exact(&mut buf)?;
         let mut ams_tcp_header = AmsTcpHeader::read_from(&mut buf.as_slice())?;
-        println!("{:?}", ams_tcp_header.command_id());
-
         if ams_tcp_header.response_data_len() > 0 {
             let mut buf = vec![0; ams_tcp_header.response_data_len() as usize];
             reader.read_exact(&mut buf)?;
