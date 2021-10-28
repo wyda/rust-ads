@@ -20,6 +20,7 @@ pub enum Request {
     DeleteDeviceNotification(DeleteDeviceNotificationRequest),
     DeviceNotification(DeviceNotificationRequest),
     ReadWrite(ReadWriteRequest),
+    SumReadWrite(SumReadWriteRequest),
 }
 
 impl WriteTo for Request {
@@ -35,6 +36,7 @@ impl WriteTo for Request {
             Request::WriteControl(r) => r.write_to(wtr),
             Request::DeviceNotification(_) => Ok(()),
             Request::DeleteDeviceNotification(r) => r.write_to(wtr),
+            Request::SumReadWrite(r) => r.write_to(wtr),
         }
     }
 }
@@ -52,6 +54,7 @@ impl Request {
             Request::WriteControl(r) => r.command_id,
             Request::DeviceNotification(r) => r.command_id,
             Request::DeleteDeviceNotification(r) => r.command_id,
+            Request::SumReadWrite(r) => r.command_id,
         }
     }
 }
@@ -587,8 +590,8 @@ impl ReadFrom for ReadWriteRequest {
         let index_offset = read.read_u32::<LittleEndian>()?;
         let read_length = read.read_u32::<LittleEndian>()?;
         let write_length = read.read_u32::<LittleEndian>()?;
-        let mut data: Vec<u8> = Vec::with_capacity(write_length as usize);
-        read.read_to_end(&mut data)?;
+        let mut data: Vec<u8> = vec![0; write_length as usize];
+        read.read_exact(&mut data)?;
 
         Ok(ReadWriteRequest {
             index_group,
@@ -598,6 +601,115 @@ impl ReadFrom for ReadWriteRequest {
             data,
             command_id: CommandID::ReadWrite,
         })
+    }
+}
+
+///Ads Sum Read Write Request
+///Bundle multiple requestst toghether
+#[derive(Debug, Clone, PartialEq)]
+pub struct SumReadWriteRequest {
+    read_write_requests: Vec<ReadWriteRequest>,
+    command_id: CommandID,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ReadWriteAccessData {
+    index_group: u32,
+    index_offset: u32,
+    read_length: u32,
+    write_length: u32,
+}
+
+impl WriteTo for ReadWriteAccessData {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.index_group)?;
+        wtr.write_u32::<LittleEndian>(self.index_offset)?;
+        wtr.write_u32::<LittleEndian>(self.read_length)?;
+        wtr.write_u32::<LittleEndian>(self.write_length)?;
+        Ok(())
+    }
+}
+
+impl ReadFrom for ReadWriteAccessData {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let index_group = read.read_u32::<LittleEndian>()?;
+        let index_offset = read.read_u32::<LittleEndian>()?;
+        let read_length = read.read_u32::<LittleEndian>()?;
+        let write_length = read.read_u32::<LittleEndian>()?;
+
+        Ok(ReadWriteAccessData {
+            index_group,
+            index_offset,
+            read_length,
+            write_length,
+        })
+    }
+}
+
+impl SumReadWriteRequest {
+    pub fn new(read_write_requests: Vec<ReadWriteRequest>) -> Self {
+        SumReadWriteRequest {
+            read_write_requests,
+            command_id: CommandID::ReadWrite,
+        }
+    }
+}
+
+impl WriteTo for SumReadWriteRequest {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        let mut access_data: Vec<u8> = Vec::new();
+        let mut data: Vec<u8> = Vec::new();
+        for request in &self.read_write_requests {
+            access_data.write_u32::<LittleEndian>(request.index_group)?;
+            access_data.write_u32::<LittleEndian>(request.index_offset)?;
+            access_data.write_u32::<LittleEndian>(request.read_length)?;
+            access_data.write_u32::<LittleEndian>(request.write_length)?;
+            data.write_all(request.data.as_slice());
+        }
+        access_data.append(&mut data);
+        wtr.write_all(&access_data);
+        Ok(())
+    }
+}
+
+impl ReadFrom for SumReadWriteRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let mut data_buf: Vec<u8> = Vec::new();
+        let mut read_write_access: Vec<ReadWriteAccessData> = Vec::new();
+        let mut data: Vec<u8> = Vec::new();
+
+        //Read all bytes to get the total length
+        read.read_to_end(&mut data_buf);
+        let total_data_len = data_buf.len() as u32;
+        let mut access_data_length: u32 = 0;
+        let mut data_length: u32 = 0;
+        let mut data_buf = data_buf.as_slice();
+
+        //Get the access data bytes
+        for _ in (0..total_data_len / 16) {
+            let access_data = ReadWriteAccessData::read_from(&mut data_buf)?;
+            data_length += access_data.read_length;
+            read_write_access.push(access_data);
+            access_data_length += 16;
+            if (total_data_len - data_length) == 0 {
+                break;
+            }
+        }
+
+        //Get the actual data/value bytes and create ReadWriteRequests
+        let mut read_write_requests: Vec<ReadWriteRequest> = Vec::new();
+        for access in read_write_access {
+            let mut buf = vec![0; access.write_length as usize];
+            data_buf.read_exact(&mut buf)?;
+            read_write_requests.push(ReadWriteRequest::new(
+                access.index_group,
+                access.index_offset,
+                access.read_length,
+                access.write_length,
+                buf,
+            ));
+        }
+        Ok(SumReadWriteRequest::new(read_write_requests))
     }
 }
 
@@ -917,11 +1029,11 @@ mod tests {
 
     #[test]
     fn read_write_request_read_from_test() {
-        let mut reader: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0];
+        let mut reader: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0];
         let request = ReadWriteRequest::read_from(&mut reader.as_slice()).unwrap();
         let data_value: u16 = 0;
         let data = data_value.to_le_bytes();
-        let compare = ReadWriteRequest::new(259, 259, 4, 4, data.to_vec());
+        let compare = ReadWriteRequest::new(259, 259, 4, 2, data.to_vec());
 
         assert_eq!(
             request.index_group, compare.index_group,
@@ -1016,5 +1128,67 @@ mod tests {
 
         assert_eq!(request.handle, compare.handle, "Wrong handle");
         assert_eq!(request.command_id, compare.command_id, "Wrong command id");
+    }
+
+    #[test]
+    fn sum_read_write_request_write_to_test() {
+        let mut rw_vec: Vec<ReadWriteRequest> = Vec::new();
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u32 = 111111;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_1 = ReadWriteRequest::new(259, 33, 4, 4, data);
+        rw_vec.push(rw_1);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u32 = 222222;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_2 = ReadWriteRequest::new(260, 22, 4, 4, data);
+        rw_vec.push(rw_2);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        Request::SumReadWrite(SumReadWriteRequest::new(rw_vec))
+            .write_to(&mut buffer)
+            .unwrap();
+
+        let compare = vec![
+            3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
+            4, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0,
+        ];
+        assert_eq!(buffer, compare);
+    }
+
+    #[test]
+    fn sum_read_write_request_read_from_test() {
+        let mut read_data = vec![
+            3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
+            4, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0,
+        ];
+
+        let sum_read_write_request =
+            SumReadWriteRequest::read_from(&mut read_data.as_slice()).unwrap();
+        let request = Request::SumReadWrite(sum_read_write_request.clone());
+
+        let mut rw_vec: Vec<ReadWriteRequest> = Vec::new();
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u32 = 111111;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_1 = ReadWriteRequest::new(259, 33, 4, 4, data);
+        rw_vec.push(rw_1);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u32 = 222222;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_2 = ReadWriteRequest::new(260, 22, 4, 4, data);
+        rw_vec.push(rw_2);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let compare = SumReadWriteRequest::new(rw_vec);
+        let compare_request = Request::SumReadWrite(compare.clone());
+
+        assert_eq!(
+            sum_read_write_request, compare,
+            "comparing sum_read_write_request failed"
+        );
+        assert_eq!(request, compare_request, "comparing the request failed");
     }
 }
