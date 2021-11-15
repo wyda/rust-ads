@@ -191,6 +191,23 @@ impl TryInto<ReadWriteResponse> for Response {
     }
 }
 
+impl From<SumReadWriteResponse> for Response {
+    fn from(response: SumReadWriteResponse) -> Self {
+        Response::SumReadWrite(response)
+    }
+}
+
+impl TryInto<SumReadWriteResponse> for Response {
+    type Error = TryIntoError;
+
+    fn try_into(self) -> Result<SumReadWriteResponse, Self::Error> {
+        match self {
+            Response::SumReadWrite(r) => Ok(r),
+            _ => Err(TryIntoError::TryIntoResponseFailed),
+        }
+    }
+}
+
 /// ADS Read Device Info
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadDeviceInfoResponse {
@@ -647,7 +664,7 @@ impl ReadWriteResponse {
 //Ads Sum ReadWrite response
 #[derive(Debug, Clone, PartialEq)]
 pub struct SumReadWriteResponse {
-    read_write_responses: Vec<ReadWriteResponse>,
+    pub read_write_responses: Vec<ReadWriteResponse>,
 }
 
 //Helper struct
@@ -698,7 +715,7 @@ impl ReadFrom for SumReadWriteResponse {
             }
         }
 
-        //Get the actual data/value bytes and create ReadWriteRequests
+        //Get the actual data/value bytes and create ReadWriteResponses
         let mut read_write_response: Vec<ReadWriteResponse> = Vec::new();
         for access in read_write_access {
             let mut buf = vec![0; access.length as usize];

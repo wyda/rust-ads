@@ -242,8 +242,7 @@ impl<'a> Connection<'a> {
         channels.insert(handle, tx);
         Ok(rx)
     }
-
-    //trial
+    
     pub fn get_symhandle(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<u32> {
         if self.sym_handle.contains_key(var.name) {
             if let Some(handle) = self.sym_handle.get(var.name) {
@@ -270,7 +269,53 @@ impl<'a> Connection<'a> {
         Ok(raw_handle)
     }
 
-    //trial
+    pub fn sum_get_symhandle(&mut self, var_list: Vec<Var<'a>>, invoke_id: u32) -> ClientResult<HashMap<&str, SymHandle>> {
+        let mut result: HashMap<&str, SymHandle> = HashMap::new();
+        let mut request_handle_list: Vec<ReadWriteRequest> = Vec::new();
+        let mut remaining_var_list: Vec<Var> = Vec::new();
+        for var in var_list {
+            if self.sym_handle.contains_key(var.name) {
+                if let Some(handle) = self.sym_handle.get(var.name) {
+                    result.insert(
+                        var.name,
+                        SymHandle::new(handle.handle, var.plc_type)
+                    );
+                }
+            }
+            else{
+                let request = ReadWriteRequest::new(
+                    GET_SYMHANDLE_BY_NAME.index_group,
+                    GET_SYMHANDLE_BY_NAME.index_offset_start,
+                    4, //allways u32 for get_symhandle
+                    var.name.len() as u32,
+                    var.name.as_bytes().to_vec(),
+                );
+                request_handle_list.push(request);
+                remaining_var_list.push(var);
+            }
+        }
+
+        let request = Request::SumReadWrite(SumReadWriteRequest::new(request_handle_list));
+        self.request(request, invoke_id)?;
+        let mut sum_response = self.create_response_channel(invoke_id)?.recv()??;
+        println!("!!!!!!!!!!!!!!!!{:?}", sum_response);
+        let mut sum_response: SumReadWriteResponse = sum_response.try_into()?; //blocking call to the channel rx
+        
+        for (n, var) in remaining_var_list.iter().enumerate() {
+            result.insert(
+                var.name,
+                SymHandle::new(
+                    sum_response
+                    .read_write_responses[n]
+                    .data.as_slice()
+                    .read_u32::<LittleEndian>()?, 
+                    var.plc_type.clone())
+            );
+        } 
+                
+        Ok(result)
+    }
+
     pub fn read_by_name(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
             self.get_symhandle(var, invoke_id)?;
@@ -354,7 +399,6 @@ impl<'a> Connection<'a> {
         }
     }
 
-    //trial
     pub fn write_control(
         &mut self,
         new_ads_state: AdsState,

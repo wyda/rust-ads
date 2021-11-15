@@ -36,6 +36,26 @@ fn main() {
         Err(e) => println!("Error reading Device Info!  {:?}", e),
     }
 
+    //Get multiple symhandles
+    let mut var_list: Vec<Var> = Vec::new();
+    var_list.push(Var::new(
+        "_u32",
+        PlcTypes::UInt
+    ));
+
+    var_list.push(Var::new(
+        "_f32",
+        PlcTypes::LReal
+    ));
+
+    var_list.push(Var::new(
+        "_f16",
+        PlcTypes::Real
+    ));
+
+    let result = connection.sum_get_symhandle(var_list, 132).unwrap();
+    println!("{:?}", result);
+
     //Read by name
     let mut value = 0;
     let var = Var::new("Main.counter", PlcTypes::DInt);
