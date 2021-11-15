@@ -6,6 +6,10 @@ use ads::proto::ads_state::AdsState;
 use ads::proto::{ads_transition_mode::AdsTransMode, ams_address::*};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::net::Ipv4Addr;
+use std::thread::sleep;
+use std::time::Duration;
+
+//Playground for testing proto
 
 fn main() {
     //Connect to remote device
@@ -35,26 +39,6 @@ fn main() {
         Ok(r) => println!("Device Info: {:?}", r),
         Err(e) => println!("Error reading Device Info!  {:?}", e),
     }
-
-    //Get multiple symhandles
-    let mut var_list: Vec<Var> = Vec::new();
-    var_list.push(Var::new(
-        "_u32",
-        PlcTypes::UInt
-    ));
-
-    var_list.push(Var::new(
-        "_f32",
-        PlcTypes::LReal
-    ));
-
-    var_list.push(Var::new(
-        "_f16",
-        PlcTypes::Real
-    ));
-
-    let result = connection.sum_get_symhandle(var_list, 132).unwrap();
-    println!("{:?}", result);
 
     //Read by name
     let mut value = 0;
@@ -90,36 +74,55 @@ fn main() {
         }
         Err(e) => println!("Error reading by name   {:?}", e),
     }
-
-    //Add device notification
-    let var = Var::new("Main._dint", PlcTypes::DInt);
-    let notification_rx;
-    match connection.add_device_notification(&var, AdsTransMode::OnChange, 10, 10, 2222) {
-        Ok(rx) => notification_rx = rx,
-        Err(e) => {
-            println!("failed to add device notification!\n{}", e);
-            return;
-        }
-    };
-
-    let mut counter = 0;
-    while counter < 2 {
-        if let Ok(Ok(stream)) = notification_rx.recv() {
-            println!("got following response: \n{:?}", stream);
-            counter += 1;
+    /*
+        //Add device notification
+        let var = Var::new("Main._dint", PlcTypes::DInt);
+        let notification_rx;
+        match connection.add_device_notification(&var, AdsTransMode::OnChange, 10, 10, 2222) {
+            Ok(rx) => notification_rx = rx,
+            Err(e) => {
+                println!("failed to add device notification!\n{}", e);
+                return;
+            }
         };
-    }
 
-    let var = Var::new("Main._dint", PlcTypes::DInt);
-    println!("delete device notifications......");
-    connection
-        .delete_device_notification(&var, 999) //ToDo Reading response not worknig!
-        .expect("Failed to release handle");
-    println!("delete device notifications......");
+        let mut counter = 0;
+        while counter < 2 {
+            if let Ok(Ok(stream)) = notification_rx.recv() {
+                println!("got following response: \n{:?}", stream);
+                counter += 1;
+            };
+        }
+
+        println!("delete device notifications......");
+        connection
+            .delete_device_notification(&var, 999) //ToDo Reading response not worknig!
+            .expect("Failed to release handle");
+        println!("delete device notifications......");
+    */
+    //Get multiple symhandles
+    let var_list: Vec<Var> = vec![
+        Var::new("Main._udint", PlcTypes::UDInt),
+        Var::new("Main._lreal", PlcTypes::LReal),
+        Var::new("Main._int", PlcTypes::Real),
+    ];
+
+    if connection.sumup_get_symhandle(var_list, 132).is_ok() {
+        println!("got handles for all variables");
+    } else {
+        println!("failed to get all handles");
+    }
 
     //Write control device stop
     match connection.write_control(AdsState::AdsStateStop, 0, 8888) {
         Ok(r) => println!("Write control successfull {:?}", r),
         Err(e) => println!("Error write control   {:?}", e),
     }
+
+    if let Some(sender) = connection.tx_thread_cancel {
+        println!("cancel reader thread -> {:?}", sender.send(true));
+    }
+
+    println!("Sleep 5 seconds");
+    sleep(Duration::from_millis(5000))
 }

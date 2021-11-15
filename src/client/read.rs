@@ -20,7 +20,7 @@ pub const AMS_HEADER_SIZE: usize = 38;
 pub type ClientResult<T> = result::Result<T, anyhow::Error>;
 
 pub struct AdsReader {
-    stream: TcpStream,
+    pub stream: TcpStream,
 }
 
 impl AdsReader {

@@ -18,7 +18,6 @@ pub enum Response {
     DeleteDeviceNotification(DeleteDeviceNotificationResponse),
     DeviceNotification(AdsNotificationStream),
     ReadWrite(ReadWriteResponse),
-    SumReadWrite(SumReadWriteResponse),
 }
 
 impl WriteTo for Response {
@@ -33,7 +32,6 @@ impl WriteTo for Response {
             Response::DeleteDeviceNotification(w) => w.write_to(&mut wtr),
             Response::DeviceNotification(w) => w.write_to(&mut wtr),
             Response::ReadWrite(w) => w.write_to(&mut wtr),
-            Response::SumReadWrite(w) => w.write_to(&mut wtr),
         }
     }
 }
@@ -186,23 +184,6 @@ impl TryInto<ReadWriteResponse> for Response {
     fn try_into(self) -> Result<ReadWriteResponse, Self::Error> {
         match self {
             Response::ReadWrite(r) => Ok(r),
-            _ => Err(TryIntoError::TryIntoResponseFailed),
-        }
-    }
-}
-
-impl From<SumReadWriteResponse> for Response {
-    fn from(response: SumReadWriteResponse) -> Self {
-        Response::SumReadWrite(response)
-    }
-}
-
-impl TryInto<SumReadWriteResponse> for Response {
-    type Error = TryIntoError;
-
-    fn try_into(self) -> Result<SumReadWriteResponse, Self::Error> {
-        match self {
-            Response::SumReadWrite(r) => Ok(r),
             _ => Err(TryIntoError::TryIntoResponseFailed),
         }
     }
@@ -657,94 +638,6 @@ impl ReadWriteResponse {
             result,
             length: data.len() as u32,
             data,
-        }
-    }
-}
-
-//Ads Sum ReadWrite response
-#[derive(Debug, Clone, PartialEq)]
-pub struct SumReadWriteResponse {
-    pub read_write_responses: Vec<ReadWriteResponse>,
-}
-
-//Helper struct
-#[derive(Debug, Clone, PartialEq)]
-struct ReadWriteAccessData {
-    result: u32,
-    length: u32,
-}
-
-impl WriteTo for ReadWriteAccessData {
-    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        wtr.write_u32::<LittleEndian>(self.result)?;
-        wtr.write_u32::<LittleEndian>(self.length)?;
-        Ok(())
-    }
-}
-
-impl ReadFrom for ReadWriteAccessData {
-    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let result = read.read_u32::<LittleEndian>()?;
-        let length = read.read_u32::<LittleEndian>()?;
-
-        Ok(ReadWriteAccessData { result, length })
-    }
-}
-
-impl ReadFrom for SumReadWriteResponse {
-    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
-        let mut data_buf: Vec<u8> = Vec::new();
-        let mut read_write_access: Vec<ReadWriteAccessData> = Vec::new();
-        let mut data: Vec<u8> = Vec::new();
-
-        //Read all bytes to get the total length
-        read.read_to_end(&mut data_buf);
-        let total_data_len = data_buf.len() as u32;
-        let mut access_data_length: u32 = 0;
-        let mut data_length: u32 = 0;
-        let mut data_buf = data_buf.as_slice();
-
-        //Get the access data bytes
-        for _ in (0..total_data_len / 8) {
-            let access_data = ReadWriteAccessData::read_from(&mut data_buf)?;
-            access_data_length += 8;
-            data_length += access_data.length;
-            read_write_access.push(access_data);
-            if (total_data_len - data_length - access_data_length) == 0 {
-                break;
-            }
-        }
-
-        //Get the actual data/value bytes and create ReadWriteResponses
-        let mut read_write_response: Vec<ReadWriteResponse> = Vec::new();
-        for access in read_write_access {
-            let mut buf = vec![0; access.length as usize];
-            data_buf.read_exact(&mut buf)?;
-            read_write_response.push(ReadWriteResponse::new(AdsError::from(access.result), buf));
-        }
-        Ok(SumReadWriteResponse::new(read_write_response))
-    }
-}
-
-impl WriteTo for SumReadWriteResponse {
-    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
-        let mut access_data: Vec<u8> = Vec::new();
-        let mut data: Vec<u8> = Vec::new();
-        for response in &self.read_write_responses {
-            access_data.write_u32::<LittleEndian>(response.result.as_u32())?;
-            access_data.write_u32::<LittleEndian>(response.length)?;
-            data.write_all(response.data.as_slice());
-        }
-        access_data.append(&mut data);
-        wtr.write_all(&access_data);
-        Ok(())
-    }
-}
-
-impl SumReadWriteResponse {
-    pub fn new(read_write_responses: Vec<ReadWriteResponse>) -> Self {
-        SumReadWriteResponse {
-            read_write_responses,
         }
     }
 }
@@ -1248,202 +1141,106 @@ mod tests {
             "Wrong data [1][1]"
         );
     }
-}
 
-#[test]
-fn ads_notification_stream_write_to_test() {
-    //4+4+4=12byte
-    let sample_data1: u32 = 1000;
-    let notification_sample1 = AdsNotificationSample {
-        notification_handle: 10,
-        sample_size: 4,
-        data: sample_data1.to_le_bytes().to_vec(),
-    };
+    #[test]
+    fn ads_notification_stream_write_to_test() {
+        //4+4+4=12byte
+        let sample_data1: u32 = 1000;
+        let notification_sample1 = AdsNotificationSample {
+            notification_handle: 10,
+            sample_size: 4,
+            data: sample_data1.to_le_bytes().to_vec(),
+        };
 
-    //4+4+2=10byte
-    let sample_data2: u16 = 2000;
-    let notification_sample2 = AdsNotificationSample {
-        notification_handle: 20,
-        sample_size: 2,
-        data: sample_data2.to_le_bytes().to_vec(),
-    };
+        //4+4+2=10byte
+        let sample_data2: u16 = 2000;
+        let notification_sample2 = AdsNotificationSample {
+            notification_handle: 20,
+            sample_size: 2,
+            data: sample_data2.to_le_bytes().to_vec(),
+        };
 
-    //4+4+8=16byte
-    let sample_data3: u64 = 3000;
-    let notification_sample3 = AdsNotificationSample {
-        notification_handle: 30,
-        sample_size: 8,
-        data: sample_data3.to_le_bytes().to_vec(),
-    };
+        //4+4+8=16byte
+        let sample_data3: u64 = 3000;
+        let notification_sample3 = AdsNotificationSample {
+            notification_handle: 30,
+            sample_size: 8,
+            data: sample_data3.to_le_bytes().to_vec(),
+        };
 
-    //8+4+12+10=34byte
-    let mut notification_samples = Vec::new();
-    notification_samples.push(notification_sample1);
-    notification_samples.push(notification_sample2);
-    let stamp_header1 = AdsStampHeader::new(1234567890, 2, notification_samples);
+        //8+4+12+10=34byte
+        let mut notification_samples = Vec::new();
+        notification_samples.push(notification_sample1);
+        notification_samples.push(notification_sample2);
+        let stamp_header1 = AdsStampHeader::new(1234567890, 2, notification_samples);
 
-    //8+4+16=28byte
-    let mut notification_samples = Vec::new();
-    notification_samples.push(notification_sample3);
-    let stamp_header2 = AdsStampHeader::new(1234567890, 1, notification_samples);
+        //8+4+16=28byte
+        let mut notification_samples = Vec::new();
+        notification_samples.push(notification_sample3);
+        let stamp_header2 = AdsStampHeader::new(1234567890, 1, notification_samples);
 
-    let mut stamp_headers = Vec::new();
-    stamp_headers.push(stamp_header1);
-    stamp_headers.push(stamp_header2);
+        let mut stamp_headers = Vec::new();
+        stamp_headers.push(stamp_header1);
+        stamp_headers.push(stamp_header2);
 
-    let mut len: usize = 0;
-    for header in &stamp_headers {
-        len += header.stamp_len();
+        let mut len: usize = 0;
+        for header in &stamp_headers {
+            len += header.stamp_len();
+        }
+        len += 4; //4 byte for the u32 stamps var after length
+
+        let expected_len: usize = 66;
+        assert_eq!(&len, &expected_len, "Wrong number of bytes");
+
+        //4+4+34+28=70byte
+        let ads_notification_stream =
+            AdsNotificationStream::new(len as u32, stamp_headers.len() as u32, stamp_headers);
+
+        let expected_len: usize = 70;
+        assert_eq!(
+            &ads_notification_stream.stream_len(),
+            &expected_len,
+            "Wrong number of bytes"
+        );
+
+        let mut buffer: Vec<u8> = Vec::new();
+
+        ads_notification_stream.write_to(&mut buffer);
+
+        #[rustfmt::skip]
+        let expected_data = [
+            //Notification stream Length
+            66, 0, 0, 0,
+            ////Notification stream number of stamps
+            2, 0, 0, 0,
+            //Stamp header1 time_stamp
+            210, 2, 150, 73, 0, 0, 0, 0,
+            //Stamp header1 number of samples
+            2, 0, 0, 0,
+            //Notification sample 1 notification handle
+            10, 0, 0, 0,
+            //Notification sample 1 sample size
+            4, 0, 0, 0,
+            //Notification sample 1 data
+            232, 3, 0, 0,
+            //Notification sample 2 notification handle
+            20, 0, 0, 0,
+            //Notification sample 2 sample size
+            2, 0, 0, 0,
+            //Notification sample 2 data
+            208, 7,
+            //Stamp header2 time_stamp
+            210, 2, 150, 73, 0, 0, 0, 0,
+            //Stamp header2 number of samples
+            1, 0, 0, 0,
+            //Notification sample 3 notification handle
+            30, 0, 0, 0,
+            //Notification sample 3 sample size
+            8, 0, 0, 0,
+            //Notification sample 3 data
+            184, 11, 0, 0, 0, 0, 0, 0,
+        ];
+
+        assert_eq!(buffer, expected_data, "Data in buffer is not as expected");
     }
-    len += 4; //4 byte for the u32 stamps var after length
-
-    let expected_len: usize = 66;
-    assert_eq!(&len, &expected_len, "Wrong number of bytes");
-
-    //4+4+34+28=70byte
-    let ads_notification_stream =
-        AdsNotificationStream::new(len as u32, stamp_headers.len() as u32, stamp_headers);
-
-    let expected_len: usize = 70;
-    assert_eq!(
-        &ads_notification_stream.stream_len(),
-        &expected_len,
-        "Wrong number of bytes"
-    );
-
-    let mut buffer: Vec<u8> = Vec::new();
-
-    ads_notification_stream.write_to(&mut buffer);
-
-    #[rustfmt::skip]
-    let expected_data = [
-        //Notification stream Length
-        66, 0, 0, 0,
-        ////Notification stream number of stamps
-        2, 0, 0, 0,
-        //Stamp header1 time_stamp
-        210, 2, 150, 73, 0, 0, 0, 0,
-        //Stamp header1 number of samples
-        2, 0, 0, 0,
-        //Notification sample 1 notification handle
-        10, 0, 0, 0,
-        //Notification sample 1 sample size
-        4, 0, 0, 0,
-        //Notification sample 1 data
-        232, 3, 0, 0,
-        //Notification sample 2 notification handle
-        20, 0, 0, 0,
-        //Notification sample 2 sample size
-        2, 0, 0, 0,
-        //Notification sample 2 data
-        208, 7,
-        //Stamp header2 time_stamp
-        210, 2, 150, 73, 0, 0, 0, 0,
-        //Stamp header2 number of samples
-        1, 0, 0, 0,
-        //Notification sample 3 notification handle
-        30, 0, 0, 0,
-        //Notification sample 3 sample size
-        8, 0, 0, 0,
-        //Notification sample 3 data
-        184, 11, 0, 0, 0, 0, 0, 0,
-    ];
-
-    assert_eq!(buffer, expected_data, "Data in buffer is not as expected");
-}
-
-#[test]
-fn sum_read_write_write_to_test() {
-    let mut response_group: Vec<ReadWriteResponse> = Vec::new();
-    let data_1 = vec![1, 0];
-    let response_1 = ReadWriteResponse::new(AdsError::ErrNoError, data_1);
-    response_group.push(response_1);
-    let data_2 = vec![2, 0, 0, 0];
-    let response_2 = ReadWriteResponse::new(AdsError::ErrNoError, data_2);
-    response_group.push(response_2);
-    let data_3 = vec![3, 0, 0, 0, 0, 0, 0, 0];
-    let response_3 = ReadWriteResponse::new(AdsError::ErrNoError, data_3);
-    response_group.push(response_3);
-
-    let sum_read_write_response = SumReadWriteResponse::new(response_group);
-    let mut buf: Vec<u8> = Vec::new();
-    sum_read_write_response.write_to(&mut buf);
-
-    #[rustfmt::skip]
-    let compare_data = vec![
-        0,0,0,0,        //result response 1
-        2,0,0,0,        //data length response 1
-        0,0,0,0,        //result response 2
-        4,0,0,0,        //data length response 1
-        0,0,0,0,        //result response 3
-        8,0,0,0,        //data length response 1
-        1,0,            //data response 1
-        2,0,0,0,        //data response 2
-        3,0,0,0,0,0,0,0 //data response 3
-    ];
-
-    assert_eq!(buf, compare_data);
-}
-
-#[test]
-fn sum_read_write_read_from_test() {
-    #[rustfmt::skip]
-    let mut data = vec![
-        0,0,0,0,        //result response 1
-        2,0,0,0,        //data length response 1
-        0,0,0,0,        //result response 2
-        4,0,0,0,        //data length response 1
-        0,0,0,0,        //result response 3
-        8,0,0,0,        //data length response 1
-        1,0,            //data response 1
-        2,0,0,0,        //data response 2
-        3,0,0,0,0,0,0,0 //data response 3
-    ];
-
-    let sum_read_write_response = SumReadWriteResponse::read_from(&mut data.as_slice()).unwrap();
-
-    let data_1 = vec![1, 0];
-    let response_1 = ReadWriteResponse::new(AdsError::ErrNoError, data_1);
-    let data_2 = vec![2, 0, 0, 0];
-    let response_2 = ReadWriteResponse::new(AdsError::ErrNoError, data_2);
-    let data_3 = vec![3, 0, 0, 0, 0, 0, 0, 0];
-    let response_3 = ReadWriteResponse::new(AdsError::ErrNoError, data_3);
-
-    assert_eq!(sum_read_write_response.read_write_responses[0], response_1);
-    assert_eq!(sum_read_write_response.read_write_responses[1], response_2);
-    assert_eq!(sum_read_write_response.read_write_responses[2], response_3);
-
-    let value_1: u16 = sum_read_write_response.read_write_responses[0]
-        .data
-        .as_slice()
-        .read_u16::<LittleEndian>()
-        .unwrap();
-    assert_eq!(value_1, 1);
-    assert_eq!(
-        sum_read_write_response.read_write_responses[0].result,
-        AdsError::ErrNoError
-    );
-    assert_eq!(sum_read_write_response.read_write_responses[0].length, 2);
-    let value_2: u32 = sum_read_write_response.read_write_responses[1]
-        .data
-        .as_slice()
-        .read_u32::<LittleEndian>()
-        .unwrap();
-    assert_eq!(value_2, 2);
-    assert_eq!(
-        sum_read_write_response.read_write_responses[1].result,
-        AdsError::ErrNoError
-    );
-    assert_eq!(sum_read_write_response.read_write_responses[1].length, 4);
-    let value_3: u64 = sum_read_write_response.read_write_responses[2]
-        .data
-        .as_slice()
-        .read_u64::<LittleEndian>()
-        .unwrap();
-    assert_eq!(value_3, 3);
-    assert_eq!(
-        sum_read_write_response.read_write_responses[2].result,
-        AdsError::ErrNoError
-    );
-    assert_eq!(sum_read_write_response.read_write_responses[2].length, 8);
 }

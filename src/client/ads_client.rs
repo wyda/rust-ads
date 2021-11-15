@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use crate::ads_services::system_services::*;
 use crate::client::plc_types::{SymHandle, Var};
@@ -25,6 +26,8 @@ use crate::proto::proto_traits::*;
 use crate::proto::request::*;
 use crate::proto::response::*;
 use crate::proto::state_flags::*;
+use crate::proto::sumup::sumup_request::SumupReadWriteRequest;
+use crate::proto::sumup::sumup_response::SumupReadWriteResponse;
 
 use std::convert::TryInto;
 
@@ -49,7 +52,7 @@ pub struct Connection<'a> {
     notification_channels: Arc<Mutex<HashMap<u32, Sender<Result<Response, AdsError>>>>>,
     device_notification_stream_channels:
         Arc<Mutex<HashMap<u32, Sender<Result<AdsNotificationStream, AdsError>>>>>,
-    tx_thread_cancel: Option<Sender<bool>>,
+    pub tx_thread_cancel: Option<Sender<bool>>,
     notification_handles: HashMap<&'a str, u32>,
 }
 
@@ -80,12 +83,14 @@ impl<'a> Connection<'a> {
         }
 
         let socket_addr = SocketAddr::from((self.route, ADS_TCP_SERVER_PORT));
-        self.stream = Some(TcpStream::connect(socket_addr)?);
-        if let Some(s) = &self.stream {
-            self.ams_source_address
-                .update_from_socket_addr(s.local_addr()?.to_string().as_str())?;
-        }
-        self.run_reader_thread()
+        let stream = TcpStream::connect(socket_addr)?;
+        stream.set_read_timeout(Some(Duration::from_millis(1000)));
+        stream.set_write_timeout(Some(Duration::from_millis(1000)));
+        self.ams_source_address
+            .update_from_socket_addr(stream.local_addr()?.to_string().as_str())?;
+        self.stream = Some(stream);
+        self.run_reader_thread()?;
+        Ok(())
     }
 
     pub fn connect_secure(&mut self) -> ClientResult<()> {
@@ -139,7 +144,7 @@ impl<'a> Connection<'a> {
             let mut stream = s.try_clone()?;
             reader = AdsReader::new(stream);
         } else {
-            panic!("No tcp stream available"); //ToDo
+            panic!("No tcp stream available");
         }
 
         let notificatino_channels = Arc::clone(&self.notification_channels);
@@ -150,7 +155,21 @@ impl<'a> Connection<'a> {
             let mut buf: Vec<u8> = vec![0; AMS_HEADER_SIZE];
             let mut tcp_ams_header: AmsTcpHeader;
             while (!cancel) {
-                tcp_ams_header = reader.read_response()?;
+                tcp_ams_header = match reader.read_response() {
+                    Ok(a) => a,
+                    Err(e) => {
+                        println!("Reading time out");
+                        let mut channels = match notification_stream_channels.lock() {
+                            Ok(c) => c,
+                            Err(_) => panic!("Failed to get lock!"),
+                        };
+                        for (handle, sender) in channels.iter() {
+                            sender.send(Err(AdsError::AdsErrClientW32Error));
+                        }
+                        cancel = true;
+                        continue;
+                    }
+                };
                 match tcp_ams_header.command_id() {
                     CommandID::DeviceNotification => {
                         let mut channels = match notification_stream_channels.lock() {
@@ -210,6 +229,7 @@ impl<'a> Connection<'a> {
                     cancel = c;
                 }
             }
+            println!("Thread is canceled");
             Ok(())
         }));
         Ok(())
@@ -242,7 +262,8 @@ impl<'a> Connection<'a> {
         channels.insert(handle, tx);
         Ok(rx)
     }
-    
+
+    ///Request handle for a variable
     pub fn get_symhandle(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<u32> {
         if self.sym_handle.contains_key(var.name) {
             if let Some(handle) = self.sym_handle.get(var.name) {
@@ -269,51 +290,80 @@ impl<'a> Connection<'a> {
         Ok(raw_handle)
     }
 
-    pub fn sum_get_symhandle(&mut self, var_list: Vec<Var<'a>>, invoke_id: u32) -> ClientResult<HashMap<&str, SymHandle>> {
-        let mut result: HashMap<&str, SymHandle> = HashMap::new();
+    ///Request handles for multiple variables.
+    pub fn sumup_get_symhandle(
+        &mut self,
+        var_list: Vec<Var<'a>>,
+        invoke_id: u32,
+    ) -> ClientResult<bool> {
+        //Check for already available handles
         let mut request_handle_list: Vec<ReadWriteRequest> = Vec::new();
+        let remaining_var_list = self.check_available_handles(&var_list, &mut request_handle_list);
+        //Request not available handles
+        let mut data_buf: Vec<u8> = Vec::new();
+        let request_count = request_handle_list.len() as u32;
+        SumupReadWriteRequest::new(request_handle_list).write_to(&mut data_buf)?;
+        let request = Request::ReadWrite(ReadWriteRequest::new(
+            ADSIGRP_SUMUP_READWRITE.index_group,
+            ADSIGRP_SUMUP_READWRITE.index_offset_start + request_count,
+            (request_count * 12),
+            data_buf.len() as u32,
+            data_buf,
+        ));
+        self.request(request, invoke_id)?;
+        let mut read_write_response: ReadWriteResponse = self
+            .create_response_channel(invoke_id)?
+            .recv()??
+            .try_into()?; //blocking call to the channel rx
+        Connection::check_ads_error(&read_write_response.result)?;
+        let sumup_response: SumupReadWriteResponse =
+            SumupReadWriteResponse::read_from(&mut read_write_response.data.as_slice())?;
+
+        self.collect_handles(&remaining_var_list, &sumup_response);
+        Ok(true)
+    }
+
+    fn check_available_handles(
+        &self,
+        var_list: &[Var<'a>],
+        request_handle_list: &mut Vec<ReadWriteRequest>,
+    ) -> Vec<Var<'a>> {
         let mut remaining_var_list: Vec<Var> = Vec::new();
         for var in var_list {
-            if self.sym_handle.contains_key(var.name) {
-                if let Some(handle) = self.sym_handle.get(var.name) {
-                    result.insert(
-                        var.name,
-                        SymHandle::new(handle.handle, var.plc_type)
-                    );
-                }
-            }
-            else{
+            if !self.sym_handle.contains_key(var.name) {
                 let request = ReadWriteRequest::new(
                     GET_SYMHANDLE_BY_NAME.index_group,
                     GET_SYMHANDLE_BY_NAME.index_offset_start,
-                    4, //allways u32 for get_symhandle
+                    4, //u32 for GET_SYMHANDLE_BY_NAME
                     var.name.len() as u32,
                     var.name.as_bytes().to_vec(),
                 );
                 request_handle_list.push(request);
-                remaining_var_list.push(var);
+                remaining_var_list.push(var.clone());
             }
         }
+        remaining_var_list
+    }
 
-        let request = Request::SumReadWrite(SumReadWriteRequest::new(request_handle_list));
-        self.request(request, invoke_id)?;
-        let mut sum_response = self.create_response_channel(invoke_id)?.recv()??;
-        println!("!!!!!!!!!!!!!!!!{:?}", sum_response);
-        let mut sum_response: SumReadWriteResponse = sum_response.try_into()?; //blocking call to the channel rx
-        
-        for (n, var) in remaining_var_list.iter().enumerate() {
-            result.insert(
+    fn collect_handles(
+        &mut self,
+        var_list: &[Var<'a>],
+        sumup_response: &SumupReadWriteResponse,
+    ) -> ClientResult<()> {
+        for (n, var) in var_list.iter().enumerate() {
+            Connection::check_ads_error(&sumup_response.read_write_responses[n].result)?;
+            self.sym_handle.insert(
                 var.name,
                 SymHandle::new(
-                    sum_response
-                    .read_write_responses[n]
-                    .data.as_slice()
-                    .read_u32::<LittleEndian>()?, 
-                    var.plc_type.clone())
+                    sumup_response.read_write_responses[n]
+                        .data
+                        .as_slice()
+                        .read_u32::<LittleEndian>()?,
+                    var.plc_type.clone(),
+                ),
             );
-        } 
-                
-        Ok(result)
+        }
+        Ok(())
     }
 
     pub fn read_by_name(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<Vec<u8>> {
@@ -330,7 +380,7 @@ impl<'a> Connection<'a> {
             self.request(request, invoke_id)?;
             let mut response = self.create_response_channel(invoke_id)?.recv()?;
             let response: ReadResponse = response?.try_into()?;
-            //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid
+
             match Connection::check_ads_error(&response.result) {
                 Ok(()) => Ok(response.data),
                 Err(e) => {
