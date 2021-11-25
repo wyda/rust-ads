@@ -395,6 +395,10 @@ impl<'a> Connection<'a> {
         }
     }
 
+    pub fn sumup_read_by_name(&mut self, var_list: Vec<Var<'a>>){
+        
+    }
+
     pub fn read_device_info(&mut self, invoke_id: u32) -> ClientResult<ReadDeviceInfoResponse> {
         let rx = self.create_response_channel(invoke_id)?;
         self.request(

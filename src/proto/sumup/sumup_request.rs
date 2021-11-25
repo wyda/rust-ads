@@ -6,10 +6,10 @@ use crate::proto::ads_state::AdsState;
 use crate::proto::ads_transition_mode::AdsTransMode;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
-use crate::proto::request::{ReadWriteRequest, Request};
+use crate::proto::request::{ReadRequest, ReadWriteRequest, Request};
 use std::convert::TryInto;
 
-///Ads Sumup Read Write Request
+///Ads Sumup Read Write Request data
 ///Bundle multiple requestst toghether. Add this data to the read write request or parse from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SumupReadWriteRequest {
@@ -118,12 +118,63 @@ impl ReadFrom for SumupReadWriteRequest {
     }
 }
 
+///Ads Sumup Read Request data
+///Bundle multiple requestst toghether. Add this data to the read request or parse from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SumupReadRequest {
+    read_requests: Vec<ReadRequest>,
+    command_id: CommandID,
+}
+
+impl SumupReadRequest {
+    pub fn new(read_requests: Vec<ReadRequest>) -> Self {
+        SumupReadRequest {
+            read_requests,
+            command_id: CommandID::Read,
+        }
+    }
+}
+
+impl WriteTo for SumupReadRequest {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        let mut access_data: Vec<u8> = Vec::new();
+        let mut data: Vec<u8> = Vec::new();
+        for request in &self.read_requests {
+            access_data.write_u32::<LittleEndian>(request.index_group)?;
+            access_data.write_u32::<LittleEndian>(request.index_offset)?;
+            access_data.write_u32::<LittleEndian>(request.length)?;
+        }
+        wtr.write_all(&access_data);
+        Ok(())
+    }
+}
+
+impl ReadFrom for SumupReadRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let access_data_size: usize = 12; //Index group(4 byte) + index offset(4 byte) + read length(4 byte)
+        let mut read_requests: Vec<ReadRequest> = Vec::new();
+        let mut valid_read = true;
+        while (valid_read) {
+            let mut buf = vec![0; access_data_size];
+            match read.read_exact(&mut buf) {
+                Ok(_) => (),
+                Err(_) => {
+                    valid_read = false;
+                    break;
+                }
+            }
+            println!("{:?}", buf);
+            read_requests.push(ReadRequest::read_from(&mut buf.as_slice())?);
+        }
+        Ok(SumupReadRequest::new(read_requests))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn sum_read_write_request_write_to_test() {
+    fn sumup_read_write_request_write_to_test() {
         let mut rw_vec: Vec<ReadWriteRequest> = Vec::new();
         let mut buffer: Vec<u8> = Vec::new();
         let data: u32 = 111111;
@@ -150,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn sum_read_write_request_read_from_test() {
+    fn sumup_read_write_request_read_from_test() {
         let mut read_data = vec![
             3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
             4, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0,
@@ -180,5 +231,61 @@ mod tests {
             sum_read_write_request, compare,
             "comparing sum_read_write_request failed"
         );
+    }
+
+    #[test]
+    fn sumup_read_request_write_to_test() {
+        let mut r_vec: Vec<ReadRequest> = Vec::new();
+        let r_1 = ReadRequest::new(259, 33, 4);
+        r_vec.push(r_1);
+
+        let r_2 = ReadRequest::new(260, 22, 4);
+        r_vec.push(r_2);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        SumupReadRequest::new(r_vec).write_to(&mut buffer).unwrap();
+
+        let compare = vec![
+            3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
+        ];
+        assert_eq!(buffer, compare);
+    }
+
+    #[test]
+    fn sumup_read_request_read_from_test() {
+        let mut read_data = vec![
+            3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
+        ];
+
+        let sum_read_request = SumupReadRequest::read_from(&mut read_data.as_slice()).unwrap();
+
+        let mut r_vec: Vec<ReadRequest> = Vec::new();
+        let rw_1 = ReadRequest::new(259, 33, 4);
+        r_vec.push(rw_1);
+
+        let rw_2 = ReadRequest::new(260, 22, 4);
+        r_vec.push(rw_2);
+
+        let compare = SumupReadRequest::new(r_vec);
+
+        assert_eq!(
+            sum_read_request, compare,
+            "comparing sum_read_write_request failed"
+        );
+
+        assert_eq!(
+            sum_read_request.command_id,
+            CommandID::Read,
+            "Wrong command ID"
+        );
+        
+        for request in &sum_read_request.read_requests{
+            assert_eq!(request.command_id, CommandID::Read, "wrong command id");
+            assert_eq!(request.length, 4, "Wrong length");
+        }
+        assert_eq!(sum_read_request.read_requests[0].index_group, 259, "Wrong index group");
+        assert_eq!(sum_read_request.read_requests[0].index_offset, 33, "Wrong index offset");
+        assert_eq!(sum_read_request.read_requests[1].index_group, 260, "Wrong index group");
+        assert_eq!(sum_read_request.read_requests[1].index_offset, 22, "Wrong index offset");
     }
 }
