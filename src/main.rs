@@ -107,10 +107,27 @@ fn main() {
         Var::new("Main._int", PlcTypes::Real),
     ];
 
-    if connection.sumup_get_symhandle(var_list, 132).is_ok() {
+    if connection.sumup_get_symhandle(&var_list, 132).is_ok() {
         println!("got handles for all variables");
     } else {
         println!("failed to get all handles");
+    }
+
+    if let Ok(read_result) = connection.sumup_read_by_name(&var_list, 101) {
+        if let Some(data) = read_result.get("Main._udint") {
+            println!("{:?}", data.as_slice().read_u32::<LittleEndian>());
+        }
+
+        if let Some(data) = read_result.get("Main._lreal") {
+            println!("{:?}", data.as_slice().read_f64::<LittleEndian>());
+        }
+
+        if let Some(data) = read_result.get("Main._int") {
+            println!("{:?}", data.as_slice().read_u16::<LittleEndian>());
+        }
+    }
+    else{
+        println!("Sumup_read_by_name failed!")
     }
 
     //Write control device stop
@@ -121,7 +138,7 @@ fn main() {
 
     if let Some(sender) = connection.tx_thread_cancel {
         println!("cancel reader thread -> {:?}", sender.send(true));
-    }
+    }    
 
     println!("Sleep 5 seconds");
     sleep(Duration::from_millis(5000))

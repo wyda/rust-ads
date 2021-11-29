@@ -119,7 +119,7 @@ impl ReadFrom for SumupReadWriteRequest {
 }
 
 ///Ads Sumup Read Request data
-///Bundle multiple requestst toghether. Add this data to the read request or parse from.
+///Bundle multiple requestst toghether. Add this data to a read write request or parse from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SumupReadRequest {
     read_requests: Vec<ReadRequest>,
@@ -132,6 +132,18 @@ impl SumupReadRequest {
             read_requests,
             command_id: CommandID::Read,
         }
+    }
+
+    pub fn expected_response_len(&self) -> u32 {
+        let mut result = 0;
+        for request in &self.read_requests {
+            result += (request.length + 8); //8 byte -> 4 byte result + 4 byte length in response data
+        }
+        result
+    }
+
+    pub fn request_count(&self) -> u32 {
+        self.read_requests.len() as u32
     }
 }
 
@@ -163,7 +175,6 @@ impl ReadFrom for SumupReadRequest {
                     break;
                 }
             }
-            println!("{:?}", buf);
             read_requests.push(ReadRequest::read_from(&mut buf.as_slice())?);
         }
         Ok(SumupReadRequest::new(read_requests))
@@ -278,14 +289,26 @@ mod tests {
             CommandID::Read,
             "Wrong command ID"
         );
-        
-        for request in &sum_read_request.read_requests{
+
+        for request in &sum_read_request.read_requests {
             assert_eq!(request.command_id, CommandID::Read, "wrong command id");
             assert_eq!(request.length, 4, "Wrong length");
         }
-        assert_eq!(sum_read_request.read_requests[0].index_group, 259, "Wrong index group");
-        assert_eq!(sum_read_request.read_requests[0].index_offset, 33, "Wrong index offset");
-        assert_eq!(sum_read_request.read_requests[1].index_group, 260, "Wrong index group");
-        assert_eq!(sum_read_request.read_requests[1].index_offset, 22, "Wrong index offset");
+        assert_eq!(
+            sum_read_request.read_requests[0].index_group, 259,
+            "Wrong index group"
+        );
+        assert_eq!(
+            sum_read_request.read_requests[0].index_offset, 33,
+            "Wrong index offset"
+        );
+        assert_eq!(
+            sum_read_request.read_requests[1].index_group, 260,
+            "Wrong index group"
+        );
+        assert_eq!(
+            sum_read_request.read_requests[1].index_offset, 22,
+            "Wrong index offset"
+        );
     }
 }

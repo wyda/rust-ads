@@ -26,8 +26,8 @@ use crate::proto::proto_traits::*;
 use crate::proto::request::*;
 use crate::proto::response::*;
 use crate::proto::state_flags::*;
-use crate::proto::sumup::sumup_request::SumupReadWriteRequest;
-use crate::proto::sumup::sumup_response::SumupReadWriteResponse;
+use crate::proto::sumup::sumup_request::{SumupReadRequest, SumupReadWriteRequest};
+use crate::proto::sumup::sumup_response::SumupReadResponse;
 
 use std::convert::TryInto;
 
@@ -293,12 +293,12 @@ impl<'a> Connection<'a> {
     ///Request handles for multiple variables.
     pub fn sumup_get_symhandle(
         &mut self,
-        var_list: Vec<Var<'a>>,
+        var_list: &[Var<'a>],
         invoke_id: u32,
     ) -> ClientResult<bool> {
         //Check for already available handles
         let mut request_handle_list: Vec<ReadWriteRequest> = Vec::new();
-        let remaining_var_list = self.check_available_handles(&var_list, &mut request_handle_list);
+        let remaining_var_list = self.check_available_handles(var_list, &mut request_handle_list);
         //Request not available handles
         let mut data_buf: Vec<u8> = Vec::new();
         let request_count = request_handle_list.len() as u32;
@@ -316,8 +316,8 @@ impl<'a> Connection<'a> {
             .recv()??
             .try_into()?; //blocking call to the channel rx
         Connection::check_ads_error(&read_write_response.result)?;
-        let sumup_response: SumupReadWriteResponse =
-            SumupReadWriteResponse::read_from(&mut read_write_response.data.as_slice())?;
+        let sumup_response: SumupReadResponse =
+            SumupReadResponse::read_from(&mut read_write_response.data.as_slice())?;
 
         self.collect_handles(&remaining_var_list, &sumup_response);
         Ok(true)
@@ -348,14 +348,14 @@ impl<'a> Connection<'a> {
     fn collect_handles(
         &mut self,
         var_list: &[Var<'a>],
-        sumup_response: &SumupReadWriteResponse,
+        sumup_response: &SumupReadResponse,
     ) -> ClientResult<()> {
         for (n, var) in var_list.iter().enumerate() {
-            Connection::check_ads_error(&sumup_response.read_write_responses[n].result)?;
+            Connection::check_ads_error(&sumup_response.read_responses[n].result)?;
             self.sym_handle.insert(
                 var.name,
                 SymHandle::new(
-                    sumup_response.read_write_responses[n]
+                    sumup_response.read_responses[n]
                         .data
                         .as_slice()
                         .read_u32::<LittleEndian>()?,
@@ -395,8 +395,66 @@ impl<'a> Connection<'a> {
         }
     }
 
-    pub fn sumup_read_by_name(&mut self, var_list: Vec<Var<'a>>){
-        
+    pub fn sumup_read_by_name(
+        &mut self,
+        var_list: &[Var<'a>],
+        invoke_id: u32,
+    ) -> ClientResult<HashMap<&str, Vec<u8>>> {
+        self.handles_available(var_list)?; // Fails if a handles is missing.
+        let mut result: HashMap<&str, Vec<u8>> = HashMap::new();
+        let request = self.create_request(self.create_read_requests(var_list)?)?;
+        let response = self.create_response_channel(invoke_id)?;
+        self.request(request, invoke_id);
+        let response = response.recv()??;
+        let response: ReadWriteResponse = response.try_into()?;
+        let mut read_values = SumupReadResponse::read_from(&mut response.data.as_slice())?;
+
+        for (n, var) in var_list.iter().enumerate() {
+            result.insert(var.name, read_values.read_responses[n].data.clone());
+            //ToDo find a way without clone.            
+        }
+        Ok(result)
+    }
+
+    fn handles_available(&self, var_list: &[Var<'a>]) -> ClientResult<()> {
+        //check if handles available
+        for var in var_list {
+            if !self.sym_handle.contains_key(&var.name) {
+                return Err(anyhow!("Symhandle for {:?} missing", var.name));
+            }
+        }
+        Ok(())
+    }
+
+    fn create_read_requests(&self, var_list: &[Var<'a>]) -> ClientResult<Vec<ReadRequest>> {
+        let mut result: Vec<ReadRequest> = Vec::new();
+        let mut handle: u32;
+        for var in var_list {
+            if let Some(handle) = self.sym_handle.get(var.name) {
+                result.push(ReadRequest::new(
+                    READ_WRITE_SYMVAL_BY_HANDLE.index_group,
+                    READ_WRITE_SYMVAL_BY_HANDLE.index_offset_start,
+                    var.plc_type.size() as u32,
+                ));
+            } else {
+                return Err(anyhow!("Symhandle for {:?} missing", var.name));
+            }
+        }
+        Ok(result)
+    }
+
+    fn create_request(&self, requests: Vec<ReadRequest>) -> ClientResult<Request> {
+        let mut buf: Vec<u8> = Vec::new();
+        let sumup = SumupReadRequest::new(requests);
+        sumup.write_to(&mut buf)?;
+        let read_request = Request::ReadWrite(ReadWriteRequest::new(
+            ADSIGRP_SUMUP_READ.index_group,
+            ADSIGRP_SUMUP_READ.index_offset_start + sumup.request_count(),
+            sumup.expected_response_len(),
+            buf.len() as u32,
+            buf,
+        ));
+        Ok(read_request)
     }
 
     pub fn read_device_info(&mut self, invoke_id: u32) -> ClientResult<ReadDeviceInfoResponse> {
