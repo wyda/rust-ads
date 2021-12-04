@@ -40,6 +40,20 @@ fn main() {
         Err(e) => println!("Error reading Device Info!  {:?}", e),
     }
 
+    //Get multiple symhandles
+    let var_list: Vec<Var> = vec![
+        Var::new("Main._udint", PlcTypes::UDInt),
+        Var::new("Main._lreal", PlcTypes::LReal),
+        Var::new("Main._int", PlcTypes::Int),
+        Var::new("Main.counter", PlcTypes::DInt),
+    ];
+
+    if connection.sumup_get_symhandle(&var_list, 132).is_ok() {
+        println!("got handles for all variables");
+    } else {
+        println!("failed to get all handles");
+    }
+
     //Read by name
     let mut value = 0;
     let var = Var::new("Main.counter", PlcTypes::DInt);
@@ -100,34 +114,22 @@ fn main() {
             .expect("Failed to release handle");
         println!("delete device notifications......");
     */
-    //Get multiple symhandles
-    let var_list: Vec<Var> = vec![
-        Var::new("Main._udint", PlcTypes::UDInt),
-        Var::new("Main._lreal", PlcTypes::LReal),
-        Var::new("Main._int", PlcTypes::Real),
-    ];
 
-    if connection.sumup_get_symhandle(&var_list, 132).is_ok() {
-        println!("got handles for all variables");
-    } else {
-        println!("failed to get all handles");
-    }
+    match connection.sumup_read_by_name(&var_list, 101) {
+        Ok(read_result) => {
+            if let Some(data) = read_result.get("Main._udint") {
+                println!("{:?}", data.as_slice().read_u32::<LittleEndian>());
+            }
 
-    if let Ok(read_result) = connection.sumup_read_by_name(&var_list, 101) {
-        if let Some(data) = read_result.get("Main._udint") {
-            println!("{:?}", data.as_slice().read_u32::<LittleEndian>());
+            if let Some(data) = read_result.get("Main._lreal") {
+                println!("{:?}", data.as_slice().read_f64::<LittleEndian>());
+            }
+
+            if let Some(data) = read_result.get("Main._int") {
+                println!("{:?}", data.as_slice().read_u16::<LittleEndian>());
+            }
         }
-
-        if let Some(data) = read_result.get("Main._lreal") {
-            println!("{:?}", data.as_slice().read_f64::<LittleEndian>());
-        }
-
-        if let Some(data) = read_result.get("Main._int") {
-            println!("{:?}", data.as_slice().read_u16::<LittleEndian>());
-        }
-    }
-    else{
-        println!("Sumup_read_by_name failed!")
+        Err(e) => println!("Sumup_read_by_name failed with error: {:?}", e),
     }
 
     //Write control device stop
@@ -138,7 +140,7 @@ fn main() {
 
     if let Some(sender) = connection.tx_thread_cancel {
         println!("cancel reader thread -> {:?}", sender.send(true));
-    }    
+    }
 
     println!("Sleep 5 seconds");
     sleep(Duration::from_millis(5000))

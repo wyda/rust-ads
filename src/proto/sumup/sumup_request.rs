@@ -150,11 +150,8 @@ impl SumupReadRequest {
 impl WriteTo for SumupReadRequest {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         let mut access_data: Vec<u8> = Vec::new();
-        let mut data: Vec<u8> = Vec::new();
         for request in &self.read_requests {
-            access_data.write_u32::<LittleEndian>(request.index_group)?;
-            access_data.write_u32::<LittleEndian>(request.index_offset)?;
-            access_data.write_u32::<LittleEndian>(request.length)?;
+            request.write_to(&mut access_data);
         }
         wtr.write_all(&access_data);
         Ok(())

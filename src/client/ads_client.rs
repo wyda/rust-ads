@@ -368,7 +368,7 @@ impl<'a> Connection<'a> {
 
     pub fn read_by_name(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var, invoke_id)?;
+            return Err(anyhow!("Symhandle for {:?} missing", var.name));
         }
 
         if let Some(handle) = self.sym_handle.get(var.name) {
@@ -407,11 +407,12 @@ impl<'a> Connection<'a> {
         self.request(request, invoke_id);
         let response = response.recv()??;
         let response: ReadWriteResponse = response.try_into()?;
+        Connection::check_ads_error(&response.result)?;
         let mut read_values = SumupReadResponse::read_from(&mut response.data.as_slice())?;
 
         for (n, var) in var_list.iter().enumerate() {
             result.insert(var.name, read_values.read_responses[n].data.clone());
-            //ToDo find a way without clone.            
+            //ToDo find a way without clone.
         }
         Ok(result)
     }
@@ -428,12 +429,11 @@ impl<'a> Connection<'a> {
 
     fn create_read_requests(&self, var_list: &[Var<'a>]) -> ClientResult<Vec<ReadRequest>> {
         let mut result: Vec<ReadRequest> = Vec::new();
-        let mut handle: u32;
         for var in var_list {
             if let Some(handle) = self.sym_handle.get(var.name) {
                 result.push(ReadRequest::new(
                     READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                    READ_WRITE_SYMVAL_BY_HANDLE.index_offset_start,
+                    handle.handle,
                     var.plc_type.size() as u32,
                 ));
             } else {
@@ -448,8 +448,8 @@ impl<'a> Connection<'a> {
         let sumup = SumupReadRequest::new(requests);
         sumup.write_to(&mut buf)?;
         let read_request = Request::ReadWrite(ReadWriteRequest::new(
-            ADSIGRP_SUMUP_READ.index_group,
-            ADSIGRP_SUMUP_READ.index_offset_start + sumup.request_count(),
+            ADSIGRP_SUMUP_READEX.index_group,
+            sumup.request_count(),
             sumup.expected_response_len(),
             buf.len() as u32,
             buf,
@@ -483,7 +483,7 @@ impl<'a> Connection<'a> {
         data: Vec<u8>,
     ) -> ClientResult<()> {
         if !self.sym_handle.contains_key(&var.name) {
-            self.get_symhandle(var, invoke_id)?;
+            return Err(anyhow!("Symhandle for {:?} missing", var.name));
         }
 
         if let Some(handle) = self.sym_handle.get(var.name) {
