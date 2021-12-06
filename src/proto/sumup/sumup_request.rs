@@ -6,7 +6,7 @@ use crate::proto::ads_state::AdsState;
 use crate::proto::ads_transition_mode::AdsTransMode;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
-use crate::proto::request::{ReadRequest, ReadWriteRequest, Request};
+use crate::proto::request::{ReadRequest, WriteRequest, ReadWriteRequest, Request};
 use std::convert::TryInto;
 
 ///Ads Sumup Read Write Request data
@@ -176,6 +176,109 @@ impl ReadFrom for SumupReadRequest {
         Ok(SumupReadRequest::new(read_requests))
     }
 }
+
+///Ads Sumup Read Write Request data
+///Bundle multiple requestst toghether. Add this data to the read write request or parse from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SumupWriteRequest {
+    write_requests: Vec<WriteRequest>,
+    command_id: CommandID,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct WriteAccessData {
+    index_group: u32,
+    index_offset: u32,    
+    write_length: u32,
+}
+
+impl WriteTo for WriteAccessData {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        wtr.write_u32::<LittleEndian>(self.index_group)?;
+        wtr.write_u32::<LittleEndian>(self.index_offset)?;        
+        wtr.write_u32::<LittleEndian>(self.write_length)?;
+        Ok(())
+    }
+}
+
+impl ReadFrom for WriteAccessData {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let index_group = read.read_u32::<LittleEndian>()?;
+        let index_offset = read.read_u32::<LittleEndian>()?;        
+        let write_length = read.read_u32::<LittleEndian>()?;
+
+        Ok(WriteAccessData {
+            index_group,
+            index_offset,            
+            write_length,
+        })
+    }
+}
+
+impl SumupWriteRequest {
+    pub fn new(write_requests: Vec<WriteRequest>) -> Self {
+        SumupWriteRequest {
+            write_requests,
+            command_id: CommandID::Write,
+        }
+    }
+}
+
+impl WriteTo for SumupWriteRequest {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        let mut access_data: Vec<u8> = Vec::new();
+        let mut data: Vec<u8> = Vec::new();
+        for request in &self.write_requests {
+            access_data.write_u32::<LittleEndian>(request.index_group)?;
+            access_data.write_u32::<LittleEndian>(request.index_offset)?;            
+            access_data.write_u32::<LittleEndian>(request.length)?;
+            data.write_all(request.data.as_slice());
+        }
+        access_data.append(&mut data);
+        wtr.write_all(&access_data);
+        Ok(())
+    }
+}
+
+impl ReadFrom for SumupWriteRequest {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let mut data_buf: Vec<u8> = Vec::new();
+        let mut write_access: Vec<WriteAccessData> = Vec::new();
+        let mut data: Vec<u8> = Vec::new();
+
+        //Read all bytes and get the total length
+        read.read_to_end(&mut data_buf);
+        let total_data_len = data_buf.len() as u32;
+        let mut access_data_length: u32 = 0;
+        let mut data_length: u32 = 0;
+        let mut data_buf = data_buf.as_slice();
+
+        //Get the access data bytes
+        for _ in (0..total_data_len / 12) {
+            let access_data = WriteAccessData::read_from(&mut data_buf)?;
+            data_length += access_data.write_length;
+            write_access.push(access_data);
+            access_data_length += 12;
+            if (total_data_len - data_length - access_data_length) == 0 {
+                break;
+            }
+        }
+
+        //Get the actual data/value bytes and create ReadWriteRequests
+        let mut write_requests: Vec<WriteRequest> = Vec::new();
+        for access in write_access {
+            let mut buf = vec![0; access.write_length as usize];
+            data_buf.read_exact(&mut buf)?;
+            write_requests.push(WriteRequest::new(
+                access.index_group,
+                access.index_offset,                
+                buf,
+            ));
+        }
+        Ok(SumupWriteRequest::new(write_requests))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

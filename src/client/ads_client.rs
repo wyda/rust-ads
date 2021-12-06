@@ -485,8 +485,7 @@ impl<'a> Connection<'a> {
         if let Some(handle) = self.sym_handle.get(var.name) {
             let request = Request::Write(WriteRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                handle.handle,
-                var.plc_type.size() as u32,
+                handle.handle,                
                 data,
             ));
             self.request(request, invoke_id)?;

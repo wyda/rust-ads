@@ -357,11 +357,11 @@ pub struct WriteRequest {
 }
 
 impl WriteRequest {
-    pub fn new(index_group: u32, index_offset: u32, length: u32, data: Vec<u8>) -> Self {
+    pub fn new(index_group: u32, index_offset: u32, data: Vec<u8>) -> Self {
         WriteRequest {
             index_group,
             index_offset,
-            length,
+            length: data.len() as u32,
             data,
             command_id: CommandID::Write,
         }
@@ -681,7 +681,7 @@ mod tests {
 
     #[test]
     fn request_from_write() {
-        let write_request = WriteRequest::new(1, 1, 1, vec![88]);
+        let write_request = WriteRequest::new(1, 1, vec![88]);
 
         assert_eq!(
             Request::Write(write_request.clone()),
@@ -691,7 +691,7 @@ mod tests {
 
     #[test]
     fn request_try_into_write() {
-        let write_request = WriteRequest::new(1, 1, 1, vec![88]);
+        let write_request = WriteRequest::new(1, 1, vec![88]);
         let request = Request::Write(write_request.clone());
         let test = request.try_into().unwrap();
 
@@ -825,7 +825,7 @@ mod tests {
     fn write_uint_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
         let data: u32 = 12000;
-        Request::Write(WriteRequest::new(259, 259, 4, data.to_le_bytes().to_vec()))
+        Request::Write(WriteRequest::new(259, 259, data.to_le_bytes().to_vec()))
             .write_to(&mut buffer);
 
         let compare: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 224, 46, 0, 0];
@@ -836,7 +836,7 @@ mod tests {
     fn write_float_request_test() {
         let mut buffer: Vec<u8> = Vec::new();
         let data: f32 = 12000.33;
-        Request::Write(WriteRequest::new(259, 259, 4, data.to_le_bytes().to_vec()))
+        Request::Write(WriteRequest::new(259, 259, data.to_le_bytes().to_vec()))
             .write_to(&mut buffer);
 
         let compare: Vec<u8> = vec![3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 82, 129, 59, 70];
@@ -849,7 +849,7 @@ mod tests {
         let request = WriteRequest::read_from(&mut reader.as_slice()).unwrap();
         let data_value: u32 = 12001;
         let data = data_value.to_le_bytes();
-        let compare = WriteRequest::new(260, 260, 4, data.to_vec());
+        let compare = WriteRequest::new(260, 260, data.to_vec());
 
         assert_eq!(
             request.index_group, compare.index_group,
