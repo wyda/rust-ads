@@ -552,18 +552,12 @@ pub struct ReadWriteRequest {
 }
 
 impl ReadWriteRequest {
-    pub fn new(
-        index_group: u32,
-        index_offset: u32,
-        read_length: u32,
-        write_length: u32,
-        data: Vec<u8>,
-    ) -> Self {
+    pub fn new(index_group: u32, index_offset: u32, read_length: u32, data: Vec<u8>) -> Self {
         ReadWriteRequest {
             index_group,
             index_offset,
             read_length,
-            write_length,
+            write_length: data.len() as u32,
             data,
             command_id: CommandID::ReadWrite,
         }
@@ -789,7 +783,7 @@ mod tests {
 
     #[test]
     fn request_from_read_write() {
-        let read_write_request = ReadWriteRequest::new(1, 1, 1, 1, vec![85]);
+        let read_write_request = ReadWriteRequest::new(1, 1, 1, vec![85]);
 
         assert_eq!(
             Request::ReadWrite(read_write_request.clone()),
@@ -799,7 +793,7 @@ mod tests {
 
     #[test]
     fn request_try_into_read_write() {
-        let read_write_request = ReadWriteRequest::new(1, 1, 1, 1, vec![85]);
+        let read_write_request = ReadWriteRequest::new(1, 1, 1, vec![85]);
 
         let request = Request::ReadWrite(read_write_request.clone());
         let test = request.try_into().unwrap();
@@ -907,7 +901,7 @@ mod tests {
         let mut buffer: Vec<u8> = Vec::new();
         let data: u32 = 40000;
         let data: Vec<u8> = data.to_le_bytes().to_vec();
-        Request::ReadWrite(ReadWriteRequest::new(259, 259, 4, 4, data)).write_to(&mut buffer);
+        Request::ReadWrite(ReadWriteRequest::new(259, 259, 4, data)).write_to(&mut buffer);
 
         let compare: Vec<u8> = vec![
             3, 1, 0, 0, 3, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 64, 156, 0, 0,
@@ -921,7 +915,7 @@ mod tests {
         let request = ReadWriteRequest::read_from(&mut reader.as_slice()).unwrap();
         let data_value: u16 = 0;
         let data = data_value.to_le_bytes();
-        let compare = ReadWriteRequest::new(259, 259, 4, 2, data.to_vec());
+        let compare = ReadWriteRequest::new(259, 259, 4, data.to_vec());
 
         assert_eq!(
             request.index_group, compare.index_group,

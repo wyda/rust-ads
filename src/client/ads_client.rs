@@ -275,7 +275,6 @@ impl<'a> Connection<'a> {
             GET_SYMHANDLE_BY_NAME.index_group,
             GET_SYMHANDLE_BY_NAME.index_offset_start,
             4, //allways u32 for get_symhandle
-            var.name.len() as u32,
             var.name.as_bytes().to_vec(),
         ));
         self.request(request, invoke_id)?;
@@ -307,7 +306,6 @@ impl<'a> Connection<'a> {
             ADSIGRP_SUMUP_READWRITE.index_group,
             ADSIGRP_SUMUP_READWRITE.index_offset_start + request_count,
             (request_count * 12),
-            data_buf.len() as u32,
             data_buf,
         ));
         self.request(request, invoke_id)?;
@@ -335,7 +333,6 @@ impl<'a> Connection<'a> {
                     GET_SYMHANDLE_BY_NAME.index_group,
                     GET_SYMHANDLE_BY_NAME.index_offset_start,
                     4, //u32 for GET_SYMHANDLE_BY_NAME
-                    var.name.len() as u32,
                     var.name.as_bytes().to_vec(),
                 );
                 request_handle_list.push(request);
@@ -451,7 +448,6 @@ impl<'a> Connection<'a> {
             ADSIGRP_SUMUP_READEX.index_group,
             sumup.request_count(),
             sumup.expected_response_len(),
-            buf.len() as u32,
             buf,
         ));
         Ok(read_request)

@@ -93,10 +93,10 @@ impl ReadFrom for SumupReadWriteRequest {
         //Get the access data bytes
         for _ in (0..total_data_len / 16) {
             let access_data = ReadWriteAccessData::read_from(&mut data_buf)?;
-            data_length += access_data.read_length;
+            data_length += access_data.write_length;
             read_write_access.push(access_data);
             access_data_length += 16;
-            if (total_data_len - data_length) == 0 {
+            if (total_data_len - data_length - access_data_length) == 0 {
                 break;
             }
         }
@@ -110,7 +110,6 @@ impl ReadFrom for SumupReadWriteRequest {
                 access.index_group,
                 access.index_offset,
                 access.read_length,
-                access.write_length,
                 buf,
             ));
         }
@@ -187,13 +186,13 @@ mod tests {
         let mut buffer: Vec<u8> = Vec::new();
         let data: u32 = 111111;
         let data: Vec<u8> = data.to_le_bytes().to_vec();
-        let rw_1 = ReadWriteRequest::new(259, 33, 4, 4, data);
+        let rw_1 = ReadWriteRequest::new(259, 33, 4, data);
         rw_vec.push(rw_1);
 
         let mut buffer: Vec<u8> = Vec::new();
-        let data: u32 = 222222;
+        let data: u64 = 222222;
         let data: Vec<u8> = data.to_le_bytes().to_vec();
-        let rw_2 = ReadWriteRequest::new(260, 22, 4, 4, data);
+        let rw_2 = ReadWriteRequest::new(260, 22, 4, data);
         rw_vec.push(rw_2);
 
         let mut buffer: Vec<u8> = Vec::new();
@@ -203,7 +202,7 @@ mod tests {
 
         let compare = vec![
             3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
-            4, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0,
+            8, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0, 0, 0, 0, 0,
         ];
         assert_eq!(buffer, compare);
     }
@@ -212,7 +211,7 @@ mod tests {
     fn sumup_read_write_request_read_from_test() {
         let mut read_data = vec![
             3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 4, 0, 0, 0,
-            4, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0,
+            8, 0, 0, 0, 7, 178, 1, 0, 14, 100, 3, 0, 0, 0, 0, 0,
         ];
 
         let sum_read_write_request =
@@ -223,13 +222,13 @@ mod tests {
         let mut buffer: Vec<u8> = Vec::new();
         let data: u32 = 111111;
         let data: Vec<u8> = data.to_le_bytes().to_vec();
-        let rw_1 = ReadWriteRequest::new(259, 33, 4, 4, data);
+        let rw_1 = ReadWriteRequest::new(259, 33, 4, data);
         rw_vec.push(rw_1);
 
         let mut buffer: Vec<u8> = Vec::new();
-        let data: u32 = 222222;
+        let data: u64 = 222222;
         let data: Vec<u8> = data.to_le_bytes().to_vec();
-        let rw_2 = ReadWriteRequest::new(260, 22, 4, 4, data);
+        let rw_2 = ReadWriteRequest::new(260, 22, 4, data);
         rw_vec.push(rw_2);
 
         let mut buffer: Vec<u8> = Vec::new();
