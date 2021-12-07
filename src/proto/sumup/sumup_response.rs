@@ -2,7 +2,7 @@ use crate::error::{AdsError, TryIntoError};
 use crate::proto::ads_state::AdsState;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
-use crate::proto::response::{ReadResponse, ReadWriteResponse, Response};
+use crate::proto::response::{ReadResponse, ReadWriteResponse, Response, WriteResponse};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::convert::TryInto;
 use std::io::{self, Read, Write};
@@ -37,6 +37,12 @@ impl ReadFrom for AccessData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SumupReadResponse {
     pub read_responses: Vec<ReadResponse>,
+}
+
+impl SumupReadResponse {
+    pub fn new(read_responses: Vec<ReadResponse>) -> Self {
+        SumupReadResponse { read_responses }
+    }
 }
 
 impl ReadFrom for SumupReadResponse {
@@ -89,9 +95,38 @@ impl WriteTo for SumupReadResponse {
     }
 }
 
-impl SumupReadResponse {
-    pub fn new(read_responses: Vec<ReadResponse>) -> Self {
-        SumupReadResponse { read_responses }
+///Ads Sumup Write response
+///Bundle multiple responses toghether. Add this data to the read write response or parse from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SumupWriteResponse {
+    pub write_responses: Vec<WriteResponse>,
+}
+
+impl SumupWriteResponse {
+    pub fn new(write_responses: Vec<WriteResponse>) -> Self {
+        SumupWriteResponse { write_responses }
+    }
+}
+
+impl ReadFrom for SumupWriteResponse {
+    fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
+        let mut data_buf: Vec<u8> = Vec::new();
+        read.read_to_end(&mut data_buf);
+        let mut write_resp: Vec<WriteResponse> = Vec::new();
+        let mut buf = data_buf.as_slice();
+        for _ in 0..(data_buf.len() / 4) {
+            write_resp.push(WriteResponse::read_from(&mut buf)?)
+        }
+        Ok(SumupWriteResponse::new(write_resp))
+    }
+}
+
+impl WriteTo for SumupWriteResponse {
+    fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
+        for result in &self.write_responses {
+            result.write_to(&mut wtr);
+        }
+        Ok(())
     }
 }
 
@@ -193,5 +228,52 @@ mod tests {
             AdsError::ErrNoError
         );
         assert_eq!(sum_read_response.read_responses[2].length, 8);
+    }
+
+    #[test]
+    fn sumup_write_write_to_test() {
+        let mut response_group: Vec<WriteResponse> = Vec::new();
+        let response_1 = WriteResponse::new(AdsError::ErrNoError);
+        response_group.push(response_1);
+        let response_2 = WriteResponse::new(AdsError::AdsErrClientPortNotOpen);
+        response_group.push(response_2);
+        let response_3 = WriteResponse::new(AdsError::ErrNoError);
+        response_group.push(response_3);
+
+        let sum_read_write_response = SumupWriteResponse::new(response_group);
+        let mut buf: Vec<u8> = Vec::new();
+        sum_read_write_response.write_to(&mut buf);
+
+        #[rustfmt::skip]
+        let compare_data = vec![
+            0,0,0,0,        //AdsError::ErrNoError
+            72,7,0,0,       //AdsError::AdsErrClientPortNotOpen
+            0,0,0,0,        //AdsError::ErrNoError        
+        ];
+
+        assert_eq!(buf, compare_data);
+    }
+
+    #[test]
+    fn sumup_write_read_from_test() {
+        #[rustfmt::skip]
+        let data = vec![
+            0,0,0,0,        //AdsError::ErrNoError
+            72,7,0,0,       //AdsError::AdsErrClientPortNotOpen
+            0,0,0,0,        //AdsError::ErrNoError        
+        ];
+
+        let sum_write_response = SumupWriteResponse::read_from(&mut data.as_slice()).unwrap();
+
+        let mut response_group: Vec<WriteResponse> = Vec::new();
+        let response_1 = WriteResponse::new(AdsError::ErrNoError);
+        response_group.push(response_1);
+        let response_2 = WriteResponse::new(AdsError::AdsErrClientPortNotOpen);
+        response_group.push(response_2);
+        let response_3 = WriteResponse::new(AdsError::ErrNoError);
+        response_group.push(response_3);
+        let compare = SumupWriteResponse::new(response_group);
+
+        assert_eq!(sum_write_response, compare);
     }
 }

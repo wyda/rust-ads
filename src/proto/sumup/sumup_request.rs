@@ -6,7 +6,7 @@ use crate::proto::ads_state::AdsState;
 use crate::proto::ads_transition_mode::AdsTransMode;
 use crate::proto::command_id::CommandID;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
-use crate::proto::request::{ReadRequest, WriteRequest, ReadWriteRequest, Request};
+use crate::proto::request::{ReadRequest, ReadWriteRequest, Request, WriteRequest};
 use std::convert::TryInto;
 
 ///Ads Sumup Read Write Request data
@@ -177,7 +177,7 @@ impl ReadFrom for SumupReadRequest {
     }
 }
 
-///Ads Sumup Read Write Request data
+///Ads Sumup Write Request data
 ///Bundle multiple requestst toghether. Add this data to the read write request or parse from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SumupWriteRequest {
@@ -188,14 +188,14 @@ pub struct SumupWriteRequest {
 #[derive(Debug, Clone, PartialEq)]
 struct WriteAccessData {
     index_group: u32,
-    index_offset: u32,    
+    index_offset: u32,
     write_length: u32,
 }
 
 impl WriteTo for WriteAccessData {
     fn write_to<W: Write>(&self, mut wtr: W) -> io::Result<()> {
         wtr.write_u32::<LittleEndian>(self.index_group)?;
-        wtr.write_u32::<LittleEndian>(self.index_offset)?;        
+        wtr.write_u32::<LittleEndian>(self.index_offset)?;
         wtr.write_u32::<LittleEndian>(self.write_length)?;
         Ok(())
     }
@@ -204,12 +204,12 @@ impl WriteTo for WriteAccessData {
 impl ReadFrom for WriteAccessData {
     fn read_from<R: Read>(read: &mut R) -> io::Result<Self> {
         let index_group = read.read_u32::<LittleEndian>()?;
-        let index_offset = read.read_u32::<LittleEndian>()?;        
+        let index_offset = read.read_u32::<LittleEndian>()?;
         let write_length = read.read_u32::<LittleEndian>()?;
 
         Ok(WriteAccessData {
             index_group,
-            index_offset,            
+            index_offset,
             write_length,
         })
     }
@@ -230,7 +230,7 @@ impl WriteTo for SumupWriteRequest {
         let mut data: Vec<u8> = Vec::new();
         for request in &self.write_requests {
             access_data.write_u32::<LittleEndian>(request.index_group)?;
-            access_data.write_u32::<LittleEndian>(request.index_offset)?;            
+            access_data.write_u32::<LittleEndian>(request.index_offset)?;
             access_data.write_u32::<LittleEndian>(request.length)?;
             data.write_all(request.data.as_slice());
         }
@@ -271,7 +271,7 @@ impl ReadFrom for SumupWriteRequest {
             data_buf.read_exact(&mut buf)?;
             write_requests.push(WriteRequest::new(
                 access.index_group,
-                access.index_offset,                
+                access.index_offset,
                 buf,
             ));
         }
@@ -408,6 +408,65 @@ mod tests {
         assert_eq!(
             sum_read_request.read_requests[1].index_offset, 22,
             "Wrong index offset"
+        );
+    }
+
+    #[test]
+    fn sumup_write_request_write_to_test() {
+        let mut rw_vec: Vec<WriteRequest> = Vec::new();
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u32 = 111111;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_1 = WriteRequest::new(259, 33, data);
+        rw_vec.push(rw_1);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u64 = 222222;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_2 = WriteRequest::new(260, 22, data);
+        rw_vec.push(rw_2);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        SumupWriteRequest::new(rw_vec)
+            .write_to(&mut buffer)
+            .unwrap();
+
+        let compare = vec![
+            3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 8, 0, 0, 0, 7, 178, 1, 0,
+            14, 100, 3, 0, 0, 0, 0, 0,
+        ];
+        assert_eq!(buffer, compare);
+    }
+
+    #[test]
+    fn sumup_write_request_read_from_test() {
+        let mut read_data = vec![
+            3, 1, 0, 0, 33, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 22, 0, 0, 0, 8, 0, 0, 0, 7, 178, 1, 0,
+            14, 100, 3, 0, 0, 0, 0, 0,
+        ];
+
+        let sum_write_request = SumupWriteRequest::read_from(&mut read_data.as_slice()).unwrap();
+        let request = sum_write_request.clone();
+
+        let mut rw_vec: Vec<WriteRequest> = Vec::new();
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u32 = 111111;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_1 = WriteRequest::new(259, 33, data);
+        rw_vec.push(rw_1);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let data: u64 = 222222;
+        let data: Vec<u8> = data.to_le_bytes().to_vec();
+        let rw_2 = WriteRequest::new(260, 22, data);
+        rw_vec.push(rw_2);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let compare = SumupWriteRequest::new(rw_vec);
+
+        assert_eq!(
+            sum_write_request, compare,
+            "comparing sum_read_write_request failed"
         );
     }
 }
