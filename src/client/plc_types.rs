@@ -55,10 +55,24 @@ impl SymHandle {
 pub struct Var {
     pub name: String,
     pub plc_type: PlcTypes,
+    pub data: Vec<u8>,
 }
 
 impl Var {
-    pub fn new(name: String, plc_type: PlcTypes) -> Self {
-        Var { name, plc_type }
+    pub fn new(name: String, plc_type: PlcTypes, data: Option<Vec<u8>>) -> Self {
+        if let Some(data) = data {
+            Var {
+                name,
+                plc_type,
+                data,
+            }
+        } else {
+            let data = Vec::new();
+            Var {
+                name,
+                plc_type,
+                data,
+            }
+        }
     }
 }

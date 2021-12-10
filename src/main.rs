@@ -41,11 +41,11 @@ fn main() {
     }
 
     //Get multiple symhandles
-    let var_list: Vec<Var> = vec![
-        Var::new("Main._udint".to_string(), PlcTypes::UDInt),
-        Var::new("Main._lreal".to_string(), PlcTypes::LReal),
-        Var::new("Main._int".to_string(), PlcTypes::Int),
-        Var::new("Main.counter".to_string(), PlcTypes::DInt),
+    let mut var_list: Vec<Var> = vec![
+        Var::new("Main._udint".to_string(), PlcTypes::UDInt, None),
+        Var::new("Main._lreal".to_string(), PlcTypes::LReal, None),
+        Var::new("Main._int".to_string(), PlcTypes::Int, None),
+        Var::new("Main.counter".to_string(), PlcTypes::DInt, None),
     ];
 
     if connection.sumup_get_symhandle(&var_list, 132).is_ok() {
@@ -56,7 +56,7 @@ fn main() {
 
     //Read by name
     let mut value = 0;
-    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt);
+    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt, None);
     match connection.read_by_name(&var, 456) {
         Ok(r) => {
             value = r
@@ -69,7 +69,7 @@ fn main() {
     }
 
     //Write by name
-    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt);
+    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt, None);
     value += 1;
     match connection.write_by_name(&var, 456, value.to_le_bytes().to_vec()) {
         Ok(r) => println!("Write successfull {:?}", r),
@@ -77,7 +77,7 @@ fn main() {
     }
 
     //Read by name
-    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt);
+    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt, None);
     match connection.read_by_name(&var, 98) {
         Ok(r) => {
             let value = r
@@ -127,6 +127,32 @@ fn main() {
 
             if let Some(data) = read_result.get("Main._int") {
                 println!("{:?}", data.as_slice().read_u16::<LittleEndian>());
+            }
+        }
+        Err(e) => println!("Sumup_read_by_name failed with error: {:?}", e),
+    }
+
+    var_list[0].data = vec![1, 0, 0, 0];
+    var_list[1].data = vec![2, 0, 0, 0, 2, 0, 0, 0];
+    var_list[2].data = vec![3, 0];
+    var_list[3].data = vec![4, 0, 0, 0];
+
+    match connection.sumup_write_by_name(&var_list, 101) {
+        Ok(read_result) => {
+            if let Some(result) = read_result.get("Main._udint") {
+                println!("Main._udint -> {:?}", result);
+            }
+
+            if let Some(result) = read_result.get("Main._lreal") {
+                println!("Main._lreal -> {:?}", result);
+            }
+
+            if let Some(result) = read_result.get("Main._int") {
+                println!("Main._int -> {:?}", result);
+            }
+
+            if let Some(result) = read_result.get("Main.counter") {
+                println!("Main.counter -> {:?}", result);
             }
         }
         Err(e) => println!("Sumup_read_by_name failed with error: {:?}", e),

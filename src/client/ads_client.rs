@@ -26,8 +26,10 @@ use crate::proto::proto_traits::*;
 use crate::proto::request::*;
 use crate::proto::response::*;
 use crate::proto::state_flags::*;
-use crate::proto::sumup::sumup_request::{SumupReadRequest, SumupReadWriteRequest};
-use crate::proto::sumup::sumup_response::SumupReadResponse;
+use crate::proto::sumup::sumup_request::{
+    SumupReadRequest, SumupReadWriteRequest, SumupWriteRequest,
+};
+use crate::proto::sumup::sumup_response::{SumupReadResponse, SumupWriteResponse};
 
 use std::convert::TryInto;
 
@@ -42,6 +44,7 @@ pub const AMS_HEADER_SIZE: usize = 38;
 
 pub type ClientResult<T> = result::Result<T, anyhow::Error>;
 
+#[derive(Debug)]
 pub struct Connection {
     route: Ipv4Addr,
     ams_targed_address: AmsAddress,
@@ -290,11 +293,7 @@ impl Connection {
     }
 
     ///Request handles for multiple variables.
-    pub fn sumup_get_symhandle(
-        &mut self,
-        var_list: &[Var],
-        invoke_id: u32,
-    ) -> ClientResult<bool> {
+    pub fn sumup_get_symhandle(&mut self, var_list: &[Var], invoke_id: u32) -> ClientResult<bool> {
         //Check for already available handles
         let mut request_handle_list: Vec<ReadWriteRequest> = Vec::new();
         let remaining_var_list = self.check_available_handles(var_list, &mut request_handle_list);
@@ -399,7 +398,7 @@ impl Connection {
     ) -> ClientResult<HashMap<String, Vec<u8>>> {
         self.handles_available(var_list)?; // Fails if a handles is missing.
         let mut result: HashMap<String, Vec<u8>> = HashMap::new();
-        let request = self.create_request(self.create_read_requests(var_list)?)?;
+        let request = self.create_read_request(self.create_read_request_list(var_list)?)?;
         let response = self.create_response_channel(invoke_id)?;
         self.request(request, invoke_id);
         let response = response.recv()??;
@@ -409,7 +408,7 @@ impl Connection {
 
         for (n, var) in var_list.iter().enumerate() {
             result.insert(var.name.clone(), read_values.read_responses[n].data.clone());
-            //ToDo find a way without clone.
+            //ToDo find a way without clone for data.
         }
         Ok(result)
     }
@@ -424,7 +423,7 @@ impl Connection {
         Ok(())
     }
 
-    fn create_read_requests(&self, var_list: &[Var]) -> ClientResult<Vec<ReadRequest>> {
+    fn create_read_request_list(&self, var_list: &[Var]) -> ClientResult<Vec<ReadRequest>> {
         let mut result: Vec<ReadRequest> = Vec::new();
         for var in var_list {
             if let Some(handle) = self.sym_handle.get(&var.name) {
@@ -440,7 +439,7 @@ impl Connection {
         Ok(result)
     }
 
-    fn create_request(&self, requests: Vec<ReadRequest>) -> ClientResult<Request> {
+    fn create_read_request(&self, requests: Vec<ReadRequest>) -> ClientResult<Request> {
         let mut buf: Vec<u8> = Vec::new();
         let sumup = SumupReadRequest::new(requests);
         sumup.write_to(&mut buf)?;
@@ -472,12 +471,7 @@ impl Connection {
         Ok(response)
     }
 
-    pub fn write_by_name(
-        &mut self,
-        var: &Var,
-        invoke_id: u32,
-        data: Vec<u8>,
-    ) -> ClientResult<()> {
+    pub fn write_by_name(&mut self, var: &Var, invoke_id: u32, data: Vec<u8>) -> ClientResult<()> {
         if !self.sym_handle.contains_key(&var.name) {
             return Err(anyhow!("Symhandle for {:?} missing", var.name));
         }
@@ -502,8 +496,63 @@ impl Connection {
                 }
             }
         } else {
-            return Err(anyhow!("Symhandle for {:?} missing", var.name))
+            return Err(anyhow!("Symhandle for {:?} missing", var.name));
         }
+    }
+
+    ///write multiple values at once
+    pub fn sumup_write_by_name(
+        &mut self,
+        var_list: &[Var],
+        invoke_id: u32,
+    ) -> ClientResult<HashMap<String, AdsError>> {
+        let mut result: HashMap<String, AdsError> = HashMap::new();
+        self.handles_available(var_list)?;
+        let request = self.create_write_request(self.create_write_request_list(var_list)?)?;
+        let response = self.create_response_channel(invoke_id)?;
+        self.request(request, invoke_id);
+        let response = response.recv()??;
+        let response: ReadWriteResponse = response.try_into()?;
+        Connection::check_ads_error(&response.result)?;
+        let mut read_values = SumupWriteResponse::read_from(&mut response.data.as_slice())?;
+
+        for (n, var) in var_list.iter().enumerate() {
+            result.insert(
+                var.name.clone(),
+                AdsError::from(read_values.write_responses[n].result.clone()),
+            );
+            //ToDo find a way without clone for data.
+        }
+        Ok(result)
+    }
+
+    fn create_write_request_list(&self, var_list: &[Var]) -> ClientResult<Vec<WriteRequest>> {
+        let mut result: Vec<WriteRequest> = Vec::new();
+        for var in var_list {
+            if let Some(handle) = self.sym_handle.get(&var.name) {
+                result.push(WriteRequest::new(
+                    READ_WRITE_SYMVAL_BY_HANDLE.index_group,
+                    handle.handle,
+                    var.data.clone(),
+                ));
+            } else {
+                return Err(anyhow!("Symhandle for {:?} missing", var.name));
+            }
+        }
+        Ok(result)
+    }
+
+    fn create_write_request(&self, requests: Vec<WriteRequest>) -> ClientResult<Request> {
+        let mut buf: Vec<u8> = Vec::new();
+        let sumup = SumupWriteRequest::new(requests);
+        sumup.write_to(&mut buf)?;
+        let read_request = Request::ReadWrite(ReadWriteRequest::new(
+            ADSIGRP_SUMUP_WRITE.index_group,
+            sumup.request_count(),
+            sumup.expected_response_len(),
+            buf,
+        ));
+        Ok(read_request)
     }
 
     pub fn write_control(

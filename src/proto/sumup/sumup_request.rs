@@ -222,6 +222,14 @@ impl SumupWriteRequest {
             command_id: CommandID::Write,
         }
     }
+
+    pub fn request_count(&self) -> u32 {
+        self.write_requests.len() as u32
+    }
+
+    pub fn expected_response_len(&self) -> u32 {
+        self.request_count() * 4
+    }
 }
 
 impl WriteTo for SumupWriteRequest {

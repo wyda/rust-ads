@@ -19,6 +19,15 @@ pub const READ_WRITE_SYMVAL_BY_HANDLE: AdsServiceInterface = AdsServiceInterface
 ///Index offset is symhandle
 /// Index offset = Number of internal sub-commands.
 /// Max commands = 500
+pub const ADSIGRP_SUMUP_WRITE: AdsServiceInterface = AdsServiceInterface {
+    index_group: 0x0000F081,
+    index_offset_start: 0x00000000,
+    index_offset_end: 0xFFFFFFFF,
+};
+
+///Index offset is symhandle
+/// Index offset = Number of internal sub-commands.
+/// Max commands = 500
 pub const ADSIGRP_SUMUP_READEX: AdsServiceInterface = AdsServiceInterface {
     index_group: 0x0000F083,
     index_offset_start: 0x00000000,
