@@ -42,21 +42,21 @@ pub const AMS_HEADER_SIZE: usize = 38;
 
 pub type ClientResult<T> = result::Result<T, anyhow::Error>;
 
-pub struct Connection<'a> {
+pub struct Connection {
     route: Ipv4Addr,
     ams_targed_address: AmsAddress,
     ams_source_address: AmsAddress,
     stream: Option<TcpStream>,
-    sym_handle: HashMap<&'a str, SymHandle>,
+    sym_handle: HashMap<String, SymHandle>,
     read_thread: Option<JoinHandle<ClientResult<()>>>,
     notification_channels: Arc<Mutex<HashMap<u32, Sender<Result<Response, AdsError>>>>>,
     device_notification_stream_channels:
         Arc<Mutex<HashMap<u32, Sender<Result<AdsNotificationStream, AdsError>>>>>,
     pub tx_thread_cancel: Option<Sender<bool>>,
-    notification_handles: HashMap<&'a str, u32>,
+    notification_handles: HashMap<String, u32>,
 }
 
-impl<'a> Connection<'a> {
+impl Connection {
     pub fn new(route: Option<Ipv4Addr>, ams_targed_address: AmsAddress) -> Self {
         let ip = match route {
             Some(r) => r,
@@ -264,9 +264,9 @@ impl<'a> Connection<'a> {
     }
 
     ///Request handle for a variable
-    pub fn get_symhandle(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<u32> {
-        if self.sym_handle.contains_key(var.name) {
-            if let Some(handle) = self.sym_handle.get(var.name) {
+    pub fn get_symhandle(&mut self, var: &Var, invoke_id: u32) -> ClientResult<u32> {
+        if self.sym_handle.contains_key(&var.name) {
+            if let Some(handle) = self.sym_handle.get(&var.name) {
                 return Ok(handle.handle);
             }
         }
@@ -285,14 +285,14 @@ impl<'a> Connection<'a> {
         Connection::check_ads_error(&response.result)?;
         let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         let handle = SymHandle::new(raw_handle, var.plc_type.clone());
-        self.sym_handle.insert(var.name, handle);
+        self.sym_handle.insert(var.name.to_string(), handle);
         Ok(raw_handle)
     }
 
     ///Request handles for multiple variables.
     pub fn sumup_get_symhandle(
         &mut self,
-        var_list: &[Var<'a>],
+        var_list: &[Var],
         invoke_id: u32,
     ) -> ClientResult<bool> {
         //Check for already available handles
@@ -323,12 +323,12 @@ impl<'a> Connection<'a> {
 
     fn check_available_handles(
         &self,
-        var_list: &[Var<'a>],
+        var_list: &[Var],
         request_handle_list: &mut Vec<ReadWriteRequest>,
-    ) -> Vec<Var<'a>> {
+    ) -> Vec<Var> {
         let mut remaining_var_list: Vec<Var> = Vec::new();
         for var in var_list {
-            if !self.sym_handle.contains_key(var.name) {
+            if !self.sym_handle.contains_key(&var.name) {
                 let request = ReadWriteRequest::new(
                     GET_SYMHANDLE_BY_NAME.index_group,
                     GET_SYMHANDLE_BY_NAME.index_offset_start,
@@ -344,13 +344,13 @@ impl<'a> Connection<'a> {
 
     fn collect_handles(
         &mut self,
-        var_list: &[Var<'a>],
+        var_list: &[Var],
         sumup_response: &SumupReadResponse,
     ) -> ClientResult<()> {
         for (n, var) in var_list.iter().enumerate() {
             Connection::check_ads_error(&sumup_response.read_responses[n].result)?;
             self.sym_handle.insert(
-                var.name,
+                var.name.clone(),
                 SymHandle::new(
                     sumup_response.read_responses[n]
                         .data
@@ -363,12 +363,12 @@ impl<'a> Connection<'a> {
         Ok(())
     }
 
-    pub fn read_by_name(&mut self, var: &Var<'a>, invoke_id: u32) -> ClientResult<Vec<u8>> {
+    pub fn read_by_name(&mut self, var: &Var, invoke_id: u32) -> ClientResult<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
             return Err(anyhow!("Symhandle for {:?} missing", var.name));
         }
 
-        if let Some(handle) = self.sym_handle.get(var.name) {
+        if let Some(handle) = self.sym_handle.get(&var.name) {
             let request = Request::Read(ReadRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
                 handle.handle,
@@ -394,11 +394,11 @@ impl<'a> Connection<'a> {
 
     pub fn sumup_read_by_name(
         &mut self,
-        var_list: &[Var<'a>],
+        var_list: &[Var],
         invoke_id: u32,
-    ) -> ClientResult<HashMap<&str, Vec<u8>>> {
+    ) -> ClientResult<HashMap<String, Vec<u8>>> {
         self.handles_available(var_list)?; // Fails if a handles is missing.
-        let mut result: HashMap<&str, Vec<u8>> = HashMap::new();
+        let mut result: HashMap<String, Vec<u8>> = HashMap::new();
         let request = self.create_request(self.create_read_requests(var_list)?)?;
         let response = self.create_response_channel(invoke_id)?;
         self.request(request, invoke_id);
@@ -408,13 +408,13 @@ impl<'a> Connection<'a> {
         let mut read_values = SumupReadResponse::read_from(&mut response.data.as_slice())?;
 
         for (n, var) in var_list.iter().enumerate() {
-            result.insert(var.name, read_values.read_responses[n].data.clone());
+            result.insert(var.name.clone(), read_values.read_responses[n].data.clone());
             //ToDo find a way without clone.
         }
         Ok(result)
     }
 
-    fn handles_available(&self, var_list: &[Var<'a>]) -> ClientResult<()> {
+    fn handles_available(&self, var_list: &[Var]) -> ClientResult<()> {
         //check if handles available
         for var in var_list {
             if !self.sym_handle.contains_key(&var.name) {
@@ -424,10 +424,10 @@ impl<'a> Connection<'a> {
         Ok(())
     }
 
-    fn create_read_requests(&self, var_list: &[Var<'a>]) -> ClientResult<Vec<ReadRequest>> {
+    fn create_read_requests(&self, var_list: &[Var]) -> ClientResult<Vec<ReadRequest>> {
         let mut result: Vec<ReadRequest> = Vec::new();
         for var in var_list {
-            if let Some(handle) = self.sym_handle.get(var.name) {
+            if let Some(handle) = self.sym_handle.get(&var.name) {
                 result.push(ReadRequest::new(
                     READ_WRITE_SYMVAL_BY_HANDLE.index_group,
                     handle.handle,
@@ -474,7 +474,7 @@ impl<'a> Connection<'a> {
 
     pub fn write_by_name(
         &mut self,
-        var: &Var<'a>,
+        var: &Var,
         invoke_id: u32,
         data: Vec<u8>,
     ) -> ClientResult<()> {
@@ -482,7 +482,7 @@ impl<'a> Connection<'a> {
             return Err(anyhow!("Symhandle for {:?} missing", var.name));
         }
 
-        if let Some(handle) = self.sym_handle.get(var.name) {
+        if let Some(handle) = self.sym_handle.get(&var.name) {
             let request = Request::Write(WriteRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
                 handle.handle,
@@ -529,7 +529,7 @@ impl<'a> Connection<'a> {
 
     pub fn add_device_notification(
         &mut self,
-        var: &Var<'a>,
+        var: &Var,
         trans_mode: AdsTransMode,
         max_delay: u32,
         cycle_time: u32,
@@ -553,7 +553,7 @@ impl<'a> Connection<'a> {
         let response: AddDeviceNotificationResponse = response_rx.recv()??.try_into()?;
         Connection::check_ads_error(&response.result)?;
         self.notification_handles
-            .insert(var.name, response.notification_handle);
+            .insert(var.name.clone(), response.notification_handle);
 
         let rx = self.read_device_notification_response(response.notification_handle)?;
         Ok(rx)
@@ -561,7 +561,7 @@ impl<'a> Connection<'a> {
 
     pub fn delete_device_notification(&mut self, var: &Var, invoke_id: u32) -> ClientResult<()> {
         let response_rx = self.create_response_channel(invoke_id)?;
-        if let Some(handle_val) = self.notification_handles.get(var.name) {
+        if let Some(handle_val) = self.notification_handles.get(&var.name) {
             let handle = *handle_val;
             self.request(
                 Request::DeleteDeviceNotification(DeleteDeviceNotificationRequest::new(handle)),

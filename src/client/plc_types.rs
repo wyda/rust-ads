@@ -52,13 +52,13 @@ impl SymHandle {
 }
 
 #[derive(Debug, Clone)]
-pub struct Var<'a> {
-    pub name: &'a str,
+pub struct Var {
+    pub name: String,
     pub plc_type: PlcTypes,
 }
 
-impl<'a> Var<'a> {
-    pub fn new(name: &'a str, plc_type: PlcTypes) -> Self {
+impl Var {
+    pub fn new(name: String, plc_type: PlcTypes) -> Self {
         Var { name, plc_type }
     }
 }
