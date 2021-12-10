@@ -42,10 +42,10 @@ fn main() {
 
     //Get multiple symhandles
     let var_list: Vec<Var> = vec![
-        Var::new("Main._udint", PlcTypes::UDInt),
-        Var::new("Main._lreal", PlcTypes::LReal),
-        Var::new("Main._int", PlcTypes::Int),
-        Var::new("Main.counter", PlcTypes::DInt),
+        Var::new("Main._udint".to_string(), PlcTypes::UDInt),
+        Var::new("Main._lreal".to_string(), PlcTypes::LReal),
+        Var::new("Main._int".to_string(), PlcTypes::Int),
+        Var::new("Main.counter".to_string(), PlcTypes::DInt),
     ];
 
     if connection.sumup_get_symhandle(&var_list, 132).is_ok() {
@@ -56,7 +56,7 @@ fn main() {
 
     //Read by name
     let mut value = 0;
-    let var = Var::new("Main.counter", PlcTypes::DInt);
+    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt);
     match connection.read_by_name(&var, 456) {
         Ok(r) => {
             value = r
@@ -69,7 +69,7 @@ fn main() {
     }
 
     //Write by name
-    let var = Var::new("Main.counter", PlcTypes::DInt);
+    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt);
     value += 1;
     match connection.write_by_name(&var, 456, value.to_le_bytes().to_vec()) {
         Ok(r) => println!("Write successfull {:?}", r),
@@ -77,7 +77,7 @@ fn main() {
     }
 
     //Read by name
-    let var = Var::new("Main.counter", PlcTypes::DInt);
+    let var = Var::new("Main.counter".to_string(), PlcTypes::DInt);
     match connection.read_by_name(&var, 98) {
         Ok(r) => {
             let value = r
