@@ -4,7 +4,7 @@ use std::net::TcpStream;
 use std::result;
 
 use crate::ads_services::system_services::*;
-use crate::client::plc_types::{SymHandle, Var};
+use crate::client::plc_types::Var;
 use crate::error::AdsError;
 use crate::proto::ads_state::*;
 use crate::proto::ams_address::{AmsAddress, AmsNetId};

@@ -1,4 +1,8 @@
-use crate::ads_services::interfaces::*;
+pub struct AdsServiceInterface {
+    pub index_group: u32,
+    pub index_offset_start: u32,
+    pub index_offset_end: u32,
+}
 
 ///Reqeust a handle for for spezific var.
 ///Index offset allways 0

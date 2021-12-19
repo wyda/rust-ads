@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::ads_services::system_services::*;
-use crate::client::plc_types::{SymHandle, Var};
+use crate::client::plc_types::Var;
 use crate::client::read::AdsReader;
 use crate::error::AdsError;
 use crate::proto::ads_state::*;
@@ -43,6 +43,7 @@ pub const ADS_SECURE_TCP_SERVER_PORT: u16 = 8016;
 pub const AMS_HEADER_SIZE: usize = 38;
 
 pub type ClientResult<T> = result::Result<T, anyhow::Error>;
+type SymHandle = u32;
 
 #[derive(Debug)]
 pub struct Connection {
@@ -162,14 +163,19 @@ impl Connection {
                     Ok(a) => a,
                     Err(e) => {
                         println!("Reading time out");
-                        let mut channels = match notification_stream_channels.lock() {
-                            Ok(c) => c,
+                        let mut channels;
+                        match notification_stream_channels.lock() {
+                            Ok(c) => channels = c,
                             Err(_) => panic!("Failed to get lock!"),
                         };
+
                         for (handle, sender) in channels.iter() {
                             sender.send(Err(AdsError::AdsErrClientW32Error));
                         }
-                        cancel = true;
+                        //cancel = true;
+                        if let Ok(c) = rx_thread_cancel.try_recv() {
+                            cancel = c;
+                        }
                         continue;
                     }
                 };
@@ -220,7 +226,7 @@ impl Connection {
                             }
                         } else {
                             println!(
-                                "No sender for invoke id {:?} found ....{:?}",
+                                "No sender for invoke id {:?} found ....{:?}...",
                                 &tcp_ams_header.invoke_id(),
                                 &tcp_ams_header.command_id()
                             )
@@ -270,7 +276,7 @@ impl Connection {
     pub fn get_symhandle(&mut self, var: &Var, invoke_id: u32) -> ClientResult<u32> {
         if self.sym_handle.contains_key(&var.name) {
             if let Some(handle) = self.sym_handle.get(&var.name) {
-                return Ok(handle.handle);
+                return Ok(*handle);
             }
         }
 
@@ -286,10 +292,9 @@ impl Connection {
             .recv()??
             .try_into()?; //blocking call to the channel rx
         Connection::check_ads_error(&response.result)?;
-        let raw_handle = response.data.as_slice().read_u32::<LittleEndian>()?;
-        let handle = SymHandle::new(raw_handle, var.plc_type.clone());
+        let handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         self.sym_handle.insert(var.name.to_string(), handle);
-        Ok(raw_handle)
+        Ok(handle)
     }
 
     ///Request handles for multiple variables.
@@ -350,13 +355,10 @@ impl Connection {
             Connection::check_ads_error(&sumup_response.read_responses[n].result)?;
             self.sym_handle.insert(
                 var.name.clone(),
-                SymHandle::new(
-                    sumup_response.read_responses[n]
-                        .data
-                        .as_slice()
-                        .read_u32::<LittleEndian>()?,
-                    var.plc_type.clone(),
-                ),
+                sumup_response.read_responses[n]
+                    .data
+                    .as_slice()
+                    .read_u32::<LittleEndian>()?,
             );
         }
         Ok(())
@@ -370,7 +372,7 @@ impl Connection {
         if let Some(handle) = self.sym_handle.get(&var.name) {
             let request = Request::Read(ReadRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                handle.handle,
+                *handle,
                 var.plc_type.size() as u32,
             ));
             self.request(request, invoke_id)?;
@@ -429,7 +431,7 @@ impl Connection {
             if let Some(handle) = self.sym_handle.get(&var.name) {
                 result.push(ReadRequest::new(
                     READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                    handle.handle,
+                    *handle,
                     var.plc_type.size() as u32,
                 ));
             } else {
@@ -479,7 +481,7 @@ impl Connection {
         if let Some(handle) = self.sym_handle.get(&var.name) {
             let request = Request::Write(WriteRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                handle.handle,
+                *handle,
                 data,
             ));
             self.request(request, invoke_id)?;
@@ -532,7 +534,7 @@ impl Connection {
             if let Some(handle) = self.sym_handle.get(&var.name) {
                 result.push(WriteRequest::new(
                     READ_WRITE_SYMVAL_BY_HANDLE.index_group,
-                    handle.handle,
+                    *handle,
                     var.data.clone(),
                 ));
             } else {
@@ -585,8 +587,6 @@ impl Connection {
         invoke_id: u32,
     ) -> ClientResult<Receiver<Result<AdsNotificationStream, AdsError>>> {
         let mut handle_val = self.get_symhandle(var, invoke_id)?;
-        let mut response_rx = self.create_response_channel(invoke_id)?;
-
         self.request(
             Request::AddDeviceNotification(AddDeviceNotificationRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
@@ -599,26 +599,37 @@ impl Connection {
             invoke_id,
         );
 
+        let mut response_rx = self.create_response_channel(invoke_id)?;
         let response: AddDeviceNotificationResponse = response_rx.recv()??.try_into()?;
         Connection::check_ads_error(&response.result)?;
         self.notification_handles
             .insert(var.name.clone(), response.notification_handle);
-
         let rx = self.read_device_notification_response(response.notification_handle)?;
         Ok(rx)
     }
 
     pub fn delete_device_notification(&mut self, var: &Var, invoke_id: u32) -> ClientResult<()> {
         let response_rx = self.create_response_channel(invoke_id)?;
+        let mut handle = 0;
         if let Some(handle_val) = self.notification_handles.get(&var.name) {
-            let handle = *handle_val;
+            handle = *handle_val;
             self.request(
                 Request::DeleteDeviceNotification(DeleteDeviceNotificationRequest::new(handle)),
                 invoke_id,
             );
+        } else {
+            anyhow!("No handle for var {:?}", var);
         }
+
         let response: DeleteDeviceNotificationResponse = response_rx.recv()??.try_into()?;
         Connection::check_ads_error(&response.result)?;
+
+        let mut channels = match self.device_notification_stream_channels.lock() {
+            Ok(c) => c,
+            Err(_) => panic!("Failed to get lock!"),
+        };
+        channels.remove(&handle);
+
         Ok(())
     }
 

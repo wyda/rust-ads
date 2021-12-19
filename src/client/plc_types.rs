@@ -15,6 +15,10 @@ pub enum PlcTypes {
     ULInt,
     Real,
     LReal,
+    Time,
+    TimeOfDay,
+    Date,
+    DateAndTime,
 }
 
 impl PlcTypes {
@@ -35,19 +39,11 @@ impl PlcTypes {
             PlcTypes::ULInt => 8,
             PlcTypes::Real => 4,
             PlcTypes::LReal => 8,
+            PlcTypes::Time => 4,
+            PlcTypes::TimeOfDay => 4,
+            PlcTypes::Date => 4,
+            PlcTypes::DateAndTime => 4,
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SymHandle {
-    pub handle: u32,
-    pub plc_type: PlcTypes,
-}
-
-impl SymHandle {
-    pub fn new(handle: u32, plc_type: PlcTypes) -> Self {
-        SymHandle { handle, plc_type }
     }
 }
 

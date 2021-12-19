@@ -34,9 +34,23 @@ fn main() {
         Err(e) => println!("Error reading Device Info!  {:?}", e),
     }
 
-    //Read state
+    //Write control device start
+    match connection.write_control(AdsState::AdsStateStart, 0, 8888) {
+        Ok(r) => println!("Write control successfull {:?}", r),
+        Err(e) => println!("Error write control   {:?}", e),
+    }
+
+    //Read state.
     match connection.read_state(312) {
-        Ok(r) => println!("Device Info: {:?}", r),
+        Ok(r) => {
+            if r.ads_state == AdsState::AdsStateStop {
+                //Write control device start
+                match connection.write_control(AdsState::AdsStateStart, 0, 8888) {
+                    Ok(r) => println!("Write control successfull {:?}", r),
+                    Err(e) => println!("Error write control   {:?}", e),
+                }
+            }
+        }
         Err(e) => println!("Error reading Device Info!  {:?}", e),
     }
 
@@ -88,36 +102,48 @@ fn main() {
         }
         Err(e) => println!("Error reading by name   {:?}", e),
     }
-    /*
-        //Add device notification
-        let var = Var::new("Main._dint", PlcTypes::DInt);
-        let notification_rx;
-        match connection.add_device_notification(&var, AdsTransMode::OnChange, 10, 10, 2222) {
-            Ok(rx) => notification_rx = rx,
-            Err(e) => {
-                println!("failed to add device notification!\n{}", e);
-                return;
-            }
-        };
 
-        let mut counter = 0;
-        while counter < 2 {
-            if let Ok(Ok(stream)) = notification_rx.recv() {
-                println!("got following response: \n{:?}", stream);
-                counter += 1;
-            };
+    //Add device notification
+    let var = Var::new("Main._dint".to_string(), PlcTypes::DInt, None);
+    let notification_rx;
+    match connection.add_device_notification(&var, AdsTransMode::OnChange, 10, 10, 2222) {
+        Ok(rx) => notification_rx = rx,
+        Err(e) => {
+            println!("failed to add device notification!\n{}", e);
+            return;
         }
+    };
+    println!("added device notification");
+    let mut counter = 0;
+    while counter <= 1000 {
+        match notification_rx.recv() {
+            Ok(s) => match s {
+                Ok(r) => {
+                    println!("{} got following response: \n{:?}", counter, r);
+                    counter += 1;
+                }
+                Err(e) => {
+                    println!("Error from notification {:?}", e);
+                    panic!()
+                }
+            },
+            Err(e) => {
+                println!("error reading notification {:?}", e);
+                panic!()
+            }
+        }
+    }
 
-        println!("delete device notifications......");
-        connection
-            .delete_device_notification(&var, 999) //ToDo Reading response not worknig!
-            .expect("Failed to release handle");
-        println!("delete device notifications......");
-    */
+    println!("try delete device notifications......");
+    connection
+        .delete_device_notification(&var, 999) //ToDo Reading response not worknig!
+        .expect("Failed to release handle");
+    println!("delete device notifications......");
 
+    //Sumup read by name
     match connection.sumup_read_by_name(&var_list, 101) {
         Ok(read_result) => {
-            if let Some(data) = read_result.get("Main._udint") {
+            if let Some(data) = read_result.get("Main._dint") {
                 println!("{:?}", data.as_slice().read_u32::<LittleEndian>());
             }
 
@@ -132,6 +158,7 @@ fn main() {
         Err(e) => println!("Sumup_read_by_name failed with error: {:?}", e),
     }
 
+    //Sumup write by name
     var_list[0].data = vec![1, 0, 0, 0];
     var_list[1].data = vec![2, 0, 0, 0, 2, 0, 0, 0];
     var_list[2].data = vec![3, 0];
