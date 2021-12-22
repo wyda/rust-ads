@@ -521,7 +521,7 @@ impl Connection {
         for (n, var) in var_list.iter().enumerate() {
             result.insert(
                 var.name.clone(),
-                AdsError::from(read_values.write_responses[n].result.clone()),
+                read_values.write_responses[n].result.clone(),
             );
             //ToDo find a way without clone for data.
         }
