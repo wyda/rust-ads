@@ -2,6 +2,7 @@ use crate::error::AmsAddressError;
 use crate::proto::proto_traits::{ReadFrom, WriteTo};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
+use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AmsAddress {
@@ -15,37 +16,13 @@ impl AmsAddress {
     }
 
     pub fn from_socket_addr(socket_addr: &str) -> Result<AmsAddress, AmsAddressError> {
-        let split_socket: Vec<&str> = socket_addr.split(':').collect();
-        if split_socket.len() != 2 {
-            return Err(AmsAddressError::SplitError {
-                length: split_socket.len(),
-            });
-        }
-
-        let ams_net_id = AmsNetId::parse(split_socket[0])?;
-        let port;
-
-        match split_socket[1].parse::<u16>() {
-            Ok(p) => port = p,
-            Err(e) => return Err(AmsAddressError::ParseError { source: e }),
-        }
-        Ok(AmsAddress::new(ams_net_id, port))
+        AmsAddress::from_str(socket_addr)
     }
 
     pub fn update_from_socket_addr(&mut self, socket_addr: &str) -> Result<(), AmsAddressError> {
-        let split_socket: Vec<&str> = socket_addr.split(':').collect();
-        if split_socket.len() != 2 {
-            return Err(AmsAddressError::SplitError {
-                length: split_socket.len(),
-            });
-        }
-
-        self.ams_net_id = AmsNetId::parse(split_socket[0])?;
-
-        match split_socket[1].parse::<u16>() {
-            Ok(p) => self.port = p,
-            Err(e) => return Err(AmsAddressError::ParseError { source: e }),
-        }
+        let ams_address = AmsAddress::from_str(socket_addr)?;
+        self.ams_net_id = ams_address.ams_net_id;
+        self.port = ams_address.port;
         Ok(())
     }
 }
@@ -64,6 +41,27 @@ impl ReadFrom for AmsAddress {
             ams_net_id: AmsNetId::read_from(read)?,
             port: read.read_u16::<LittleEndian>()?,
         })
+    }
+}
+
+impl FromStr for AmsAddress {
+    type Err = AmsAddressError;
+    fn from_str(socket_addr: &str) -> Result<AmsAddress, AmsAddressError> {
+        let split_socket: Vec<&str> = socket_addr.split(':').collect();
+        if split_socket.len() != 2 {
+            return Err(AmsAddressError::SplitError {
+                length: split_socket.len(),
+            });
+        }
+
+        let ams_net_id = AmsNetId::parse(split_socket[0])?;
+        let port;
+
+        match split_socket[1].parse::<u16>() {
+            Ok(p) => port = p,
+            Err(e) => return Err(AmsAddressError::ParseError { source: e }),
+        }
+        Ok(AmsAddress::new(ams_net_id, port))
     }
 }
 
@@ -209,5 +207,13 @@ mod tests {
         let mut ams_address = AmsAddress::from_socket_addr(socket).unwrap();
         assert_eq!(ams_address.ams_net_id.net_id, [127, 0, 0, 1, 1, 1]);
         assert_eq!(ams_address.port, 45032);
+    }
+
+    #[test]
+    fn ams_address_from_string_test() {
+        let s = "169.0.0.1:45932";
+        let mut ams_address = AmsAddress::from_str(s).unwrap();
+        assert_eq!(ams_address.ams_net_id.net_id, [169, 0, 0, 1, 1, 1]);
+        assert_eq!(ams_address.port, 45932);
     }
 }

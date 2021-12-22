@@ -161,8 +161,7 @@ impl Connection {
             while (!cancel) {
                 tcp_ams_header = match reader.read_response() {
                     Ok(a) => a,
-                    Err(e) => {
-                        println!("Reading time out");
+                    Err(e) => {                        
                         let mut channels;
                         match notification_stream_channels.lock() {
                             Ok(c) => channels = c,
@@ -172,8 +171,8 @@ impl Connection {
                         for (handle, sender) in channels.iter() {
                             sender.send(Err(AdsError::AdsErrClientW32Error));
                         }
-                        //cancel = true;
-                        if let Ok(c) = rx_thread_cancel.try_recv() {
+                                                
+                        if let Ok(c) = rx_thread_cancel.try_recv() {                            
                             cancel = c;
                         }
                         continue;
@@ -521,7 +520,7 @@ impl Connection {
         for (n, var) in var_list.iter().enumerate() {
             result.insert(
                 var.name.clone(),
-                AdsError::from(read_values.write_responses[n].result.clone()),
+                read_values.write_responses[n].result.clone(),
             );
             //ToDo find a way without clone for data.
         }
