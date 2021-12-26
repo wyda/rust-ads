@@ -161,7 +161,7 @@ impl Connection {
             while (!cancel) {
                 tcp_ams_header = match reader.read_response() {
                     Ok(a) => a,
-                    Err(e) => {                        
+                    Err(e) => {
                         let mut channels;
                         match notification_stream_channels.lock() {
                             Ok(c) => channels = c,
@@ -171,8 +171,8 @@ impl Connection {
                         for (handle, sender) in channels.iter() {
                             sender.send(Err(AdsError::AdsErrClientW32Error));
                         }
-                                                
-                        if let Ok(c) = rx_thread_cancel.try_recv() {                            
+
+                        if let Ok(c) = rx_thread_cancel.try_recv() {
                             cancel = c;
                         }
                         continue;

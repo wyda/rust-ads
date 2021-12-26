@@ -7,6 +7,7 @@ use crate::proto::response::*;
 use crate::proto::state_flags::StateFlags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
+use std::str::FromStr;
 
 ///Length of the fix part of the AMS Header in bytes
 const FIX_AMS_HEADER_LEN: u32 = 32;
@@ -232,7 +233,7 @@ mod tests {
         let port = 30000;
 
         let ams_header = AmsHeader::new(
-            AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
+            AmsAddress::new(AmsNetId::from_str("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
             StateFlags::resp_default(),
             111,
@@ -308,7 +309,7 @@ mod tests {
     fn ams_header_len_test() {
         let port = 30000;
         let ams_header = AmsHeader::new(
-            AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
+            AmsAddress::new(AmsNetId::from_str("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
             StateFlags::req_default(),
             111,
@@ -325,7 +326,7 @@ mod tests {
         let port = 30000;
 
         let ams_header = AmsHeader::new(
-            AmsAddress::new(AmsNetId::parse("192.168.1.1.1.1").unwrap(), port),
+            AmsAddress::new(AmsNetId::from_str("192.168.1.1.1.1").unwrap(), port),
             AmsAddress::new(AmsNetId::new(192, 168, 1, 1, 1, 2), port),
             StateFlags::req_default(),
             111,

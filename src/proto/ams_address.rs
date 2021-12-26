@@ -50,7 +50,7 @@ impl FromStr for AmsAddress {
             });
         }
 
-        let ams_net_id = AmsNetId::parse(split_socket[0])?;
+        let ams_net_id = AmsNetId::from_str(split_socket[0])?;
         let port;
 
         match split_socket[1].parse::<u16>() {
@@ -87,16 +87,9 @@ impl From<[u8; 6]> for AmsNetId {
     }
 }
 
-impl AmsNetId {
-    #[allow(clippy::many_single_char_names)]
-    pub fn new(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8) -> AmsNetId {
-        AmsNetId {
-            net_id: [a, b, c, d, e, f],
-        }
-    }
-
-    /// create a new AmsNetId from a str input
-    pub fn parse(net_id: &str) -> Result<AmsNetId, AmsAddressError> {
+impl FromStr for AmsNetId {
+    type Err = AmsAddressError;
+    fn from_str(net_id: &str) -> Result<AmsNetId, AmsAddressError> {
         let mut parts: Vec<&str> = net_id.split('.').collect();
 
         if parts.len() == 4 {
@@ -115,6 +108,15 @@ impl AmsNetId {
             }
         }
         Ok(AmsNetId { net_id })
+    }
+}
+
+impl AmsNetId {
+    #[allow(clippy::many_single_char_names)]
+    pub fn new(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8) -> AmsNetId {
+        AmsNetId {
+            net_id: [a, b, c, d, e, f],
+        }
     }
 
     pub fn net_id(&self) -> [u8; 6] {
@@ -139,16 +141,16 @@ mod tests {
 
     #[test]
     fn ams_net_id_parse_test() {
-        let ams_net_id = AmsNetId::parse("192.168.1.1.1.1").unwrap();
+        let ams_net_id = AmsNetId::from_str("192.168.1.1.1.1").unwrap();
         assert_eq!(ams_net_id.net_id, [192, 168, 1, 1, 1, 1]);
 
-        let ams_parse_error = AmsNetId::parse("192.168.1.1.1.1.1").unwrap_err();
+        let ams_parse_error = AmsNetId::from_str("192.168.1.1.1.1.1").unwrap_err();
         assert_eq!(
             ams_parse_error,
             AmsAddressError::InvalidAddressLength { length: 7 }
         );
 
-        let ams_parse_error = AmsNetId::parse("999.168.1.1.1.1").unwrap_err();
+        let ams_parse_error = AmsNetId::from_str("999.168.1.1.1.1").unwrap_err();
         //assert_eq!(ams_parse_error, AmsAddressError::ParseError{kind: std::num::IntErrorKind::PosOverflow});
     }
 
@@ -169,7 +171,7 @@ mod tests {
 
     #[test]
     fn ams_address_new_test() {
-        let ams_net_id = AmsNetId::parse("192.168.1.1.1.1").unwrap();
+        let ams_net_id = AmsNetId::from_str("192.168.1.1.1.1").unwrap();
         let port = 30000;
         let ams_address = AmsAddress::new(ams_net_id.clone(), port);
 
@@ -179,7 +181,7 @@ mod tests {
 
     #[test]
     fn ams_address_write_to_test() {
-        let ams_net_id = AmsNetId::parse("192.168.1.1.1.1").unwrap();
+        let ams_net_id = AmsNetId::from_str("192.168.1.1.1.1").unwrap();
         let port = 30000;
         let ams_address = AmsAddress::new(ams_net_id.clone(), port);
 
