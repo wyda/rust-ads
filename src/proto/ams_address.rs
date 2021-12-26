@@ -15,10 +15,6 @@ impl AmsAddress {
         AmsAddress { ams_net_id, port }
     }
 
-    pub fn from_socket_addr(socket_addr: &str) -> Result<AmsAddress, AmsAddressError> {
-        AmsAddress::from_str(socket_addr)
-    }
-
     pub fn update_from_socket_addr(&mut self, socket_addr: &str) -> Result<(), AmsAddressError> {
         let ams_address = AmsAddress::from_str(socket_addr)?;
         self.ams_net_id = ams_address.ams_net_id;
@@ -199,14 +195,6 @@ mod tests {
         let ams_address = AmsAddress::read_from(&mut data.as_slice()).unwrap();
         assert_eq!(ams_address.ams_net_id.net_id, [192, 168, 1, 1, 1, 1]);
         assert_eq!(ams_address.port, 30000);
-    }
-
-    #[test]
-    fn ams_address_from_socket_address_test() {
-        let socket = "127.0.0.1:45032";
-        let mut ams_address = AmsAddress::from_socket_addr(socket).unwrap();
-        assert_eq!(ams_address.ams_net_id.net_id, [127, 0, 0, 1, 1, 1]);
-        assert_eq!(ams_address.port, 45032);
     }
 
     #[test]
