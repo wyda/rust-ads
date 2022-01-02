@@ -1,27 +1,25 @@
 use ads::client::{
-    ads_client::Connection,
+    ads_client::Client,
     plc_types::{PlcTypes, Var},
 };
 use ads::proto::ads_state::AdsState;
 use ads::proto::{ads_transition_mode::AdsTransMode, ams_address::*};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::net::Ipv4Addr;
-use std::thread::sleep;
-use std::time::Duration;
+use std::process::exit;
 
 //Playground for testing proto
 
 fn main() {
     //Connect to remote device
     let ams_targed_address = AmsAddress::new(AmsNetId::from([192, 168, 0, 150, 1, 1]), 851);
-    let route = Some(Ipv4Addr::new(192, 168, 0, 150));
-    let mut connection = Connection::new(route, ams_targed_address);
+    let mut connection = Client::new(Ipv4Addr::new(127, 0, 0, 1), ams_targed_address);
 
     match connection.connect() {
         Ok(_) => (),
         Err(e) => {
-            println!("Failed to connect to remote ADS device!\n{}", e);
-            return;
+            eprintln!("Failed to connect to remote ADS device!\n{}", e);
+            exit(-1);
         }
     };
 
@@ -31,13 +29,13 @@ fn main() {
             println!("Device Info: {:?}", r);
             println!("Device name: {:?}", r.get_device_name().unwrap());
         }
-        Err(e) => println!("Error reading Device Info!  {:?}", e),
+        Err(e) => eprintln!("Error reading Device Info!  {:?}", e),
     }
 
     //Write control device start
     match connection.write_control(AdsState::AdsStateStart, 0, 8888) {
         Ok(r) => println!("Write control successfull {:?}", r),
-        Err(e) => println!("Error write control   {:?}", e),
+        Err(e) => eprintln!("Error write control   {:?}", e),
     }
 
     //Read state.
@@ -47,11 +45,11 @@ fn main() {
                 //Write control device start
                 match connection.write_control(AdsState::AdsStateStart, 0, 8888) {
                     Ok(r) => println!("Write control successfull {:?}", r),
-                    Err(e) => println!("Error write control   {:?}", e),
+                    Err(e) => eprintln!("Error write control   {:?}", e),
                 }
             }
         }
-        Err(e) => println!("Error reading Device Info!  {:?}", e),
+        Err(e) => eprintln!("Error reading Device Info!  {:?}", e),
     }
 
     //Get multiple symhandles
@@ -79,7 +77,7 @@ fn main() {
                 .expect("Failed to read u32 from u8 slice");
             println!("Read value:  {:?}", value);
         }
-        Err(e) => println!("Error reading by name   {:?}", e),
+        Err(e) => eprintln!("Error reading by name   {:?}", e),
     }
 
     //Write by name
@@ -87,7 +85,7 @@ fn main() {
     value += 1;
     match connection.write_by_name(&var, 456, value.to_le_bytes().to_vec()) {
         Ok(r) => println!("Write successfull {:?}", r),
-        Err(e) => println!("Error writing by name   {:?}", e),
+        Err(e) => eprintln!("Error writing by name   {:?}", e),
     }
 
     //Read by name
@@ -100,7 +98,7 @@ fn main() {
                 .expect("Failed to read u32 from u8 slice");
             println!("Read value:  {:?}", value);
         }
-        Err(e) => println!("Error reading by name   {:?}", e),
+        Err(e) => eprintln!("Error reading by name   {:?}", e),
     }
 
     //Add device notification
@@ -109,7 +107,7 @@ fn main() {
     match connection.add_device_notification(&var, AdsTransMode::OnChange, 10, 10, 2222) {
         Ok(rx) => notification_rx = rx,
         Err(e) => {
-            println!("failed to add device notification!\n{}", e);
+            eprintln!("failed to add device notification!\n{}", e);
             return;
         }
     };
@@ -123,12 +121,12 @@ fn main() {
                     counter += 1;
                 }
                 Err(e) => {
-                    println!("Error from notification {:?}", e);
+                    eprintln!("Error from notification {:?}", e);
                     panic!()
                 }
             },
             Err(e) => {
-                println!("error reading notification {:?}", e);
+                eprintln!("error reading notification {:?}", e);
                 panic!()
             }
         }
@@ -155,7 +153,7 @@ fn main() {
                 println!("{:?}", data.as_slice().read_u16::<LittleEndian>());
             }
         }
-        Err(e) => println!("Sumup_read_by_name failed with error: {:?}", e),
+        Err(e) => eprintln!("Sumup_read_by_name failed with error: {:?}", e),
     }
 
     //Sumup write by name
@@ -182,19 +180,12 @@ fn main() {
                 println!("Main.counter -> {:?}", result);
             }
         }
-        Err(e) => println!("Sumup_read_by_name failed with error: {:?}", e),
+        Err(e) => eprintln!("Sumup_read_by_name failed with error: {:?}", e),
     }
 
     //Write control device stop
     match connection.write_control(AdsState::AdsStateStop, 0, 8888) {
         Ok(r) => println!("Write control successfull {:?}", r),
-        Err(e) => println!("Error write control   {:?}", e),
-    }
-
-    if let Some(sender) = connection.tx_thread_cancel {
-        println!("cancel reader thread -> {:?}", sender.send(true));
-    }
-
-    println!("Sleep 5 seconds");
-    sleep(Duration::from_millis(5000))
+        Err(e) => eprintln!("Error write control   {:?}", e),
+    }   
 }

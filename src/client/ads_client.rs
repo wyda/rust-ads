@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use anyhow::{Context, Result};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::hash_map;
 use std::collections::HashMap;
@@ -44,43 +45,39 @@ pub const AMS_HEADER_SIZE: usize = 38;
 
 pub type ClientResult<T> = result::Result<T, anyhow::Error>;
 type SymHandle = u32;
+type ReaderTX = Sender<Result<Response, AdsError>>;
+type ReaderNotifyTX = Sender<Result<AdsNotificationStream, AdsError>>;
 
 #[derive(Debug)]
-pub struct Connection {
+pub struct Client {
     route: Ipv4Addr,
     ams_targed_address: AmsAddress,
     ams_source_address: AmsAddress,
     stream: Option<TcpStream>,
     sym_handle: HashMap<String, SymHandle>,
-    read_thread: Option<JoinHandle<ClientResult<()>>>,
-    notification_channels: Arc<Mutex<HashMap<u32, Sender<Result<Response, AdsError>>>>>,
-    device_notification_stream_channels:
-        Arc<Mutex<HashMap<u32, Sender<Result<AdsNotificationStream, AdsError>>>>>,
-    pub tx_thread_cancel: Option<Sender<bool>>,
+    notification_channels: Arc<Mutex<HashMap<u32, ReaderTX>>>,
+    device_notification_stream_channels: Arc<Mutex<HashMap<u32, ReaderNotifyTX>>>,    
     notification_handles: HashMap<String, u32>,
 }
 
-impl Connection {
-    pub fn new(route: Option<Ipv4Addr>, ams_targed_address: AmsAddress) -> Self {
-        let ip = match route {
-            Some(r) => r,
-            None => Ipv4Addr::new(127, 0, 0, 1),
-        };
-
-        Connection {
-            route: ip,
+///Connect to a remote ads device and read, write data,
+///add and receive notifications or read device information.
+impl Client {
+    ///Crates new client which is not yet connected. Use connect() after creating.
+    pub fn new(route: Ipv4Addr, ams_targed_address: AmsAddress) -> Self {
+        Client {
+            route,
             ams_targed_address,
             ams_source_address: AmsAddress::new(AmsNetId::from([0, 0, 0, 0, 0, 0]), 0),
             stream: None,
-            sym_handle: HashMap::new(),
-            read_thread: None,
+            sym_handle: HashMap::new(),            
             notification_channels: Arc::new(Mutex::new(HashMap::new())),
-            device_notification_stream_channels: Arc::new(Mutex::new(HashMap::new())),
-            tx_thread_cancel: None,
+            device_notification_stream_channels: Arc::new(Mutex::new(HashMap::new())),            
             notification_handles: HashMap::new(),
         }
     }
 
+    ///Connect to remote device
     pub fn connect(&mut self) -> ClientResult<()> {
         if self.is_connected() {
             return Ok(());
@@ -88,9 +85,9 @@ impl Connection {
 
         let socket_addr = SocketAddr::from((self.route, ADS_TCP_SERVER_PORT));
         let stream = TcpStream::connect(socket_addr)?;
-        stream.set_read_timeout(Some(Duration::from_millis(1000)));
+        stream.set_nodelay(true)?;        
         stream.set_write_timeout(Some(Duration::from_millis(1000)));
-        self.ams_source_address
+        self.ams_source_address            
             .update_from_socket_addr(stream.local_addr()?.to_string().as_str())?;
         self.stream = Some(stream);
         self.run_reader_thread()?;
@@ -101,16 +98,19 @@ impl Connection {
         unimplemented!()
     }
 
+    ///A tcp stream is available -> stream is not None
     pub fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
 
-    pub fn request(&mut self, request: Request, invoke_id: u32) -> ClientResult<usize> {
+    ///Sends the request to a remote device
+    fn request(&mut self, request: Request, invoke_id: u32) -> ClientResult<usize> {
         let mut buffer = Vec::new();
         self.create_payload(request, StateFlags::req_default(), invoke_id, &mut buffer)?;
         self.stream_write(&mut buffer)
     }
 
+    ///Write the request data to the byte buffer for sending
     fn create_payload(
         &mut self,
         request: Request,
@@ -125,11 +125,11 @@ impl Connection {
             invoke_id,
             request,
         );
-        let ams_tcp_header = AmsTcpHeader::from(ams_header);
-        ams_tcp_header.write_to(&mut buffer)?;
+        AmsTcpHeader::from(ams_header).write_to(&mut buffer)?;
         Ok(())
     }
 
+    ///Writes request to remote device
     fn stream_write(&mut self, buffer: &mut [u8]) -> ClientResult<usize> {
         if let Some(s) = &mut self.stream {
             return Ok(s.write(buffer)?);
@@ -138,27 +138,24 @@ impl Connection {
     }
 
     //test
-    fn run_reader_thread(&mut self) -> ClientResult<()> {
-        let (tx, rx) = channel::<bool>();
-        self.tx_thread_cancel = Some(tx);
-        let rx_thread_cancel = rx;
+    fn run_reader_thread(&mut self) -> ClientResult<()> {        
         let mut reader: AdsReader;
 
         if let Some(s) = &mut self.stream {
             let mut stream = s.try_clone()?;
             reader = AdsReader::new(stream);
         } else {
-            panic!("No tcp stream available");
+            return Err(anyhow!(AdsError::ErrPortNotConnected))            
         }
 
         let notificatino_channels = Arc::clone(&self.notification_channels);
         let notification_stream_channels = Arc::clone(&self.device_notification_stream_channels);
 
-        self.read_thread = Some(thread::spawn(move || {
+        let _: JoinHandle<ClientResult<()>> = thread::spawn(move || {
             let mut cancel: bool = false;
             let mut buf: Vec<u8> = vec![0; AMS_HEADER_SIZE];
             let mut tcp_ams_header: AmsTcpHeader;
-            while (!cancel) {
+            loop {
                 tcp_ams_header = match reader.read_response() {
                     Ok(a) => a,
                     Err(e) => {
@@ -170,14 +167,11 @@ impl Connection {
 
                         for (handle, sender) in channels.iter() {
                             sender.send(Err(AdsError::AdsErrClientW32Error));
-                        }
-
-                        if let Ok(c) = rx_thread_cancel.try_recv() {
-                            cancel = c;
-                        }
+                        }                       
                         continue;
                     }
                 };
+
                 match tcp_ams_header.command_id() {
                     CommandID::DeviceNotification => {
                         let mut channels = match notification_stream_channels.lock() {
@@ -191,24 +185,23 @@ impl Connection {
                         for header in stream.ads_stamp_headers {
                             for sample in header.notification_samples {
                                 handle = sample.notification_handle;
+                                if let Some(sender) = channels.get(&handle) {
+                                    if tcp_ams_header.ads_error() == &AdsError::ErrNoError {
+                                        let response: AdsNotificationStream =
+                                            tcp_ams_header.response()?.try_into()?;
+                                        sender.send(Ok(response));
+                                    } else {
+                                        sender.send(Err(tcp_ams_header.ads_error().clone()));
+                                    }
+                                } else {
+                                    println!(
+                                        "No sender for invoke id {:?} found ....{:?}",
+                                        &tcp_ams_header.invoke_id(),
+                                        &tcp_ams_header.command_id()
+                                    )
+                                }
                             }
-                        }
-
-                        if let Some(sender) = channels.get(&handle) {
-                            if tcp_ams_header.ads_error() == &AdsError::ErrNoError {
-                                let response: AdsNotificationStream =
-                                    tcp_ams_header.response()?.try_into()?;
-                                sender.send(Ok(response));
-                            } else {
-                                sender.send(Err(tcp_ams_header.ads_error().clone()));
-                            }
-                        } else {
-                            println!(
-                                "No sender for invoke id {:?} found ....{:?}",
-                                &tcp_ams_header.invoke_id(),
-                                &tcp_ams_header.command_id()
-                            )
-                        }
+                        }                        
                     }
                     _ => {
                         let mut channels = match notificatino_channels.lock() {
@@ -231,18 +224,14 @@ impl Connection {
                             )
                         }
                     }
-                }
-
-                if let Ok(c) = rx_thread_cancel.try_recv() {
-                    cancel = c;
-                }
-            }
-            println!("Thread is canceled");
+                }                
+            }            
             Ok(())
-        }));
+        });
         Ok(())
     }
 
+    ///Creates an channel to receive the requested data
     fn create_response_channel(
         &mut self,
         invoke_id: u32,
@@ -257,7 +246,8 @@ impl Connection {
         Ok(rx)
     }
 
-    fn read_device_notification_response(
+    ///Creates a channel to receive ads notifications
+    fn create_device_notification_channel(
         &mut self,
         handle: u32,
     ) -> ClientResult<Receiver<Result<AdsNotificationStream, AdsError>>> {
@@ -271,7 +261,7 @@ impl Connection {
         Ok(rx)
     }
 
-    ///Request handle for a variable
+    ///Request handle for a single variable
     pub fn get_symhandle(&mut self, var: &Var, invoke_id: u32) -> ClientResult<u32> {
         if self.sym_handle.contains_key(&var.name) {
             if let Some(handle) = self.sym_handle.get(&var.name) {
@@ -285,12 +275,10 @@ impl Connection {
             4, //allways u32 for get_symhandle
             var.name.as_bytes().to_vec(),
         ));
+        let rx = self.create_response_channel(invoke_id)?;
         self.request(request, invoke_id)?;
-        let mut response: ReadWriteResponse = self
-            .create_response_channel(invoke_id)?
-            .recv()??
-            .try_into()?; //blocking call to the channel rx
-        Connection::check_ads_error(&response.result)?;
+        let response: ReadWriteResponse = rx.recv()??.try_into()?; //blocking call to the channel rx
+        Client::check_ads_error(&response.result)?;
         let handle = response.data.as_slice().read_u32::<LittleEndian>()?;
         self.sym_handle.insert(var.name.to_string(), handle);
         Ok(handle)
@@ -311,12 +299,10 @@ impl Connection {
             (request_count * 12),
             data_buf,
         ));
+        let rx = self.create_response_channel(invoke_id)?;
         self.request(request, invoke_id)?;
-        let mut read_write_response: ReadWriteResponse = self
-            .create_response_channel(invoke_id)?
-            .recv()??
-            .try_into()?; //blocking call to the channel rx
-        Connection::check_ads_error(&read_write_response.result)?;
+        let read_write_response: ReadWriteResponse = rx.recv()??.try_into()?; //blocking call to the channel rx
+        Client::check_ads_error(&read_write_response.result)?;
         let sumup_response: SumupReadResponse =
             SumupReadResponse::read_from(&mut read_write_response.data.as_slice())?;
 
@@ -324,6 +310,8 @@ impl Connection {
         Ok(true)
     }
 
+    ///check if some of the requested var handles are already available.
+    /// Returns a list with variables which have no handle available yet.
     fn check_available_handles(
         &self,
         var_list: &[Var],
@@ -345,13 +333,14 @@ impl Connection {
         remaining_var_list
     }
 
+    ///Collects the requested handles from the response and stores them inside the Client
     fn collect_handles(
         &mut self,
         var_list: &[Var],
         sumup_response: &SumupReadResponse,
     ) -> ClientResult<()> {
         for (n, var) in var_list.iter().enumerate() {
-            Connection::check_ads_error(&sumup_response.read_responses[n].result)?;
+            Client::check_ads_error(&sumup_response.read_responses[n].result)?;
             self.sym_handle.insert(
                 var.name.clone(),
                 sumup_response.read_responses[n]
@@ -361,8 +350,9 @@ impl Connection {
             );
         }
         Ok(())
-    }
+    }   
 
+    ///Read a value of a single var from a remote device
     pub fn read_by_name(&mut self, var: &Var, invoke_id: u32) -> ClientResult<Vec<u8>> {
         if !self.sym_handle.contains_key(&var.name) {
             return Err(anyhow!("Symhandle for {:?} missing", var.name));
@@ -378,12 +368,10 @@ impl Connection {
             let mut response = self.create_response_channel(invoke_id)?.recv()?;
             let response: ReadResponse = response?.try_into()?;
 
-            match Connection::check_ads_error(&response.result) {
+            match Client::check_ads_error(&response.result) {
                 Ok(()) => Ok(response.data),
                 Err(e) => {
-                    if e == AdsError::AdsErrDeviceSymbolVersionInvalid {
-                        self.sym_handle.clear();
-                    }
+                    self.is_handle_invalid(&e);
                     Err(anyhow!(e))
                 }
             }
@@ -392,6 +380,17 @@ impl Connection {
         }
     }
 
+    ///Remove a handle if remote device returns error AdsErrDeviceSymbolVersionInvalid
+    ///Returns true if handle is invalid else false
+    fn is_handle_invalid(&mut self, ads_error: &AdsError) -> bool {
+        if ads_error == &AdsError::AdsErrDeviceSymbolVersionInvalid {
+            self.sym_handle.clear();
+            return true;
+        }
+        false
+    }
+
+    ///Read values of multiple variables in a single call.
     pub fn sumup_read_by_name(
         &mut self,
         var_list: &[Var],
@@ -402,12 +401,12 @@ impl Connection {
         let request = self.create_read_request(self.create_read_request_list(var_list)?)?;
         let response = self.create_response_channel(invoke_id)?;
         self.request(request, invoke_id);
-        let response = response.recv()??;
-        let response: ReadWriteResponse = response.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        let response: ReadWriteResponse = response.recv()??.try_into()?;
+        Client::check_ads_error(&response.result)?;
         let mut read_values = SumupReadResponse::read_from(&mut response.data.as_slice())?;
 
         for (n, var) in var_list.iter().enumerate() {
+            self.is_handle_invalid(&read_values.read_responses[n].result); //remove handles from list if invalid            
             result.insert(var.name.clone(), read_values.read_responses[n].data.clone());
             //ToDo find a way without clone for data.
         }
@@ -424,6 +423,7 @@ impl Connection {
         Ok(())
     }
 
+    ///Creates a vec of read requests
     fn create_read_request_list(&self, var_list: &[Var]) -> ClientResult<Vec<ReadRequest>> {
         let mut result: Vec<ReadRequest> = Vec::new();
         for var in var_list {
@@ -440,6 +440,7 @@ impl Connection {
         Ok(result)
     }
 
+    ///Create a read request from a vec of ReadRequests as data (sumup)
     fn create_read_request(&self, requests: Vec<ReadRequest>) -> ClientResult<Request> {
         let mut buf: Vec<u8> = Vec::new();
         let sumup = SumupReadRequest::new(requests);
@@ -460,7 +461,7 @@ impl Connection {
             invoke_id,
         );
         let response: ReadDeviceInfoResponse = rx.recv()??.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        Client::check_ads_error(&response.result)?;
         Ok(response)
     }
 
@@ -468,10 +469,11 @@ impl Connection {
         let rx = self.create_response_channel(invoke_id)?;
         self.request(Request::ReadState(ReadStateRequest::new()), invoke_id);
         let response: ReadStateResponse = rx.recv()??.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        Client::check_ads_error(&response.result)?;
         Ok(response)
     }
 
+    ///Write data to a single var
     pub fn write_by_name(&mut self, var: &Var, invoke_id: u32, data: Vec<u8>) -> ClientResult<()> {
         if !self.sym_handle.contains_key(&var.name) {
             return Err(anyhow!("Symhandle for {:?} missing", var.name));
@@ -483,16 +485,14 @@ impl Connection {
                 *handle,
                 data,
             ));
+            let rx = self.create_response_channel(invoke_id)?;
             self.request(request, invoke_id)?;
-            let response = self.create_response_channel(invoke_id)?.recv()?;
-            let response: WriteResponse = response?.try_into()?;
+            let response: WriteResponse = rx.recv()??.try_into()?;
             //Delete handles if AdsError::AdsErrDeviceSymbolVersionInvalid in response data
-            match Connection::check_ads_error(&response.result) {
+            match Client::check_ads_error(&response.result) {
                 Ok(()) => Ok(()),
                 Err(e) => {
-                    if e == AdsError::AdsErrDeviceSymbolVersionInvalid {
-                        self.sym_handle.clear();
-                    }
+                    self.is_handle_invalid(&e);
                     Err(anyhow!(e))
                 }
             }
@@ -501,7 +501,7 @@ impl Connection {
         }
     }
 
-    ///write multiple values at once
+    ///write data to multiple variables in a single call
     pub fn sumup_write_by_name(
         &mut self,
         var_list: &[Var],
@@ -510,23 +510,20 @@ impl Connection {
         let mut result: HashMap<String, AdsError> = HashMap::new();
         self.handles_available(var_list)?;
         let request = self.create_write_request(self.create_write_request_list(var_list)?)?;
-        let response = self.create_response_channel(invoke_id)?;
+        let rx = self.create_response_channel(invoke_id)?;
         self.request(request, invoke_id);
-        let response = response.recv()??;
-        let response: ReadWriteResponse = response.try_into()?;
-        Connection::check_ads_error(&response.result)?;
-        let mut read_values = SumupWriteResponse::read_from(&mut response.data.as_slice())?;
+        let response: ReadWriteResponse = rx.recv()??.try_into()?;
+        Client::check_ads_error(&response.result)?;
+        let mut response = SumupWriteResponse::read_from(&mut response.data.as_slice())?;
 
         for (n, var) in var_list.iter().enumerate() {
-            result.insert(
-                var.name.clone(),
-                read_values.write_responses[n].result.clone(),
-            );
+            result.insert(var.name.clone(), response.write_responses[n].result.clone());
             //ToDo find a way without clone for data.
         }
         Ok(result)
     }
 
+    ///Creates a vec with write requests
     fn create_write_request_list(&self, var_list: &[Var]) -> ClientResult<Vec<WriteRequest>> {
         let mut result: Vec<WriteRequest> = Vec::new();
         for var in var_list {
@@ -543,6 +540,7 @@ impl Connection {
         Ok(result)
     }
 
+    ///Creates a request (sumup) from a Vec<WreiteRequest>
     fn create_write_request(&self, requests: Vec<WriteRequest>) -> ClientResult<Request> {
         let mut buf: Vec<u8> = Vec::new();
         let sumup = SumupWriteRequest::new(requests);
@@ -556,6 +554,8 @@ impl Connection {
         Ok(read_request)
     }
 
+    ///Writre an AdsState/DeviceState to the remote device
+    ///For example stop the Ads device
     pub fn write_control(
         &mut self,
         new_ads_state: AdsState,
@@ -571,12 +571,14 @@ impl Connection {
             )),
             invoke_id,
         );
-        let mut response = self.create_response_channel(invoke_id)?.recv()?;
-        let response: WriteControlResponse = response?.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        let rx = self.create_response_channel(invoke_id)?;
+        let response: WriteControlResponse = rx.recv()??.try_into()?;
+        Client::check_ads_error(&response.result)?;
         Ok(())
     }
 
+    /// Get notifications from the remote device. Define with with AdsTransMode the behaviour
+    /// Returns the receiver part of a mpsc channel which can be polled to reviced the notifications.
     pub fn add_device_notification(
         &mut self,
         var: &Var,
@@ -586,6 +588,7 @@ impl Connection {
         invoke_id: u32,
     ) -> ClientResult<Receiver<Result<AdsNotificationStream, AdsError>>> {
         let mut handle_val = self.get_symhandle(var, invoke_id)?;
+        let rx = self.create_response_channel(invoke_id)?;
         self.request(
             Request::AddDeviceNotification(AddDeviceNotificationRequest::new(
                 READ_WRITE_SYMVAL_BY_HANDLE.index_group,
@@ -598,17 +601,17 @@ impl Connection {
             invoke_id,
         );
 
-        let mut response_rx = self.create_response_channel(invoke_id)?;
-        let response: AddDeviceNotificationResponse = response_rx.recv()??.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        let response: AddDeviceNotificationResponse = rx.recv()??.try_into()?;
+        Client::check_ads_error(&response.result)?;
+        let rx = self.create_device_notification_channel(response.notification_handle)?;
         self.notification_handles
             .insert(var.name.clone(), response.notification_handle);
-        let rx = self.read_device_notification_response(response.notification_handle)?;
         Ok(rx)
     }
 
+    ///Stop receiving device notifications
     pub fn delete_device_notification(&mut self, var: &Var, invoke_id: u32) -> ClientResult<()> {
-        let response_rx = self.create_response_channel(invoke_id)?;
+        let rx = self.create_response_channel(invoke_id)?;
         let mut handle = 0;
         if let Some(handle_val) = self.notification_handles.get(&var.name) {
             handle = *handle_val;
@@ -620,18 +623,18 @@ impl Connection {
             anyhow!("No handle for var {:?}", var);
         }
 
-        let response: DeleteDeviceNotificationResponse = response_rx.recv()??.try_into()?;
-        Connection::check_ads_error(&response.result)?;
+        let response: DeleteDeviceNotificationResponse = rx.recv()??.try_into()?;
+        Client::check_ads_error(&response.result)?;
 
         let mut channels = match self.device_notification_stream_channels.lock() {
             Ok(c) => c,
             Err(_) => panic!("Failed to get lock!"),
         };
         channels.remove(&handle);
-
         Ok(())
     }
 
+    ///Check if the result contains an error
     fn check_ads_error(ads_error: &AdsError) -> Result<(), AdsError> {
         if ads_error != &AdsError::ErrNoError {
             return Err(ads_error.clone());
